@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs, io, path::Path};
 
 #[derive(Debug, Default, Clone)]
 pub struct VFolder {
@@ -101,6 +101,24 @@ impl VFolder {
         } else {
             self.files.get_mut(name)
         }
+    }
+
+    pub fn place(&self, path: &Path) -> io::Result<()> {
+        fs::create_dir_all(path)?;
+        for (name, folder) in &self.folders {
+            folder.place(&path.join(name))?;
+        }
+        for (name, file) in &self.files {
+            match file {
+                VFile::Text(text) => {
+                    fs::write(path.join(name), text)?;
+                }
+                VFile::Binary(data) => {
+                    fs::write(path.join(name), data)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
