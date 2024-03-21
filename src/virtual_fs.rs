@@ -1,6 +1,13 @@
 //! Virtual file system for creating and manipulating files and folders in memory.
 
-use std::{collections::HashMap, fs, io, path::Path};
+use std::{
+    collections::HashMap,
+    fs,
+    io::{self, Write},
+    path::Path,
+};
+
+use zip::ZipWriter;
 
 /// Folder representation in virtual file system
 #[derive(Debug, Default, Clone)]
@@ -133,6 +140,49 @@ impl VFolder {
             }
         }
         Ok(())
+    }
+
+    /// Zip the folder and its contents into a zip archive.
+    pub fn zip(&self, path: &Path) -> io::Result<()> {
+        let file = fs::File::create(path)?;
+        let mut writer = ZipWriter::new(file);
+        let virtual_files = self.flatten();
+
+        for (path, file) in virtual_files {
+            writer.start_file(path, Default::default())?;
+            match file {
+                VFile::Text(text) => {
+                    writer.write_all(text.as_bytes())?;
+                }
+                VFile::Binary(data) => {
+                    writer.write_all(data)?;
+                }
+            }
+        }
+
+        writer.finish()?;
+
+        Ok(())
+    }
+
+    /// Flatten the folder and its contents into a list of files with full paths.
+    fn flatten(&self) -> Vec<(String, &VFile)> {
+        let mut files = self
+            .files
+            .iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect::<Vec<_>>();
+
+        for (name, folder) in &self.folders {
+            let sub_files = folder
+                .flatten()
+                .into_iter()
+                .map(|(path, file)| (format!("{}/{}", name, path), file))
+                .collect::<Vec<_>>();
+            files.extend(sub_files);
+        }
+
+        files
     }
 }
 
