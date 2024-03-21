@@ -1,11 +1,15 @@
+//! Virtual file system for creating and manipulating files and folders in memory.
+
 use std::{collections::HashMap, fs, io, path::Path};
 
+/// Folder representation in virtual file system
 #[derive(Debug, Default, Clone)]
 pub struct VFolder {
     folders: HashMap<String, VFolder>,
     files: HashMap<String, VFile>,
 }
 impl VFolder {
+    /// Create a new, empty virtual folder.
     pub fn new() -> VFolder {
         VFolder {
             folders: HashMap::new(),
@@ -13,21 +17,25 @@ impl VFolder {
         }
     }
 
+    /// Get all direct subfolders in the folder.
     pub fn get_folders(&self) -> &HashMap<String, VFolder> {
         &self.folders
     }
+    /// Get all direct files in the folder.
     pub fn get_files(&self) -> &HashMap<String, VFile> {
         &self.files
     }
 
-    pub fn add_folder(&mut self, name: &str) {
-        self.add_existing_folder(name, VFolder::new());
+    /// Recursively add a new folder to the folder.
+    pub fn add_folder(&mut self, path: &str) {
+        self.add_existing_folder(path, VFolder::new());
     }
-    pub fn add_existing_folder(&mut self, name: &str, folder: VFolder) {
-        let (head, tail) = name
+    /// Recursively add an existing folder to the folder.
+    pub fn add_existing_folder(&mut self, path: &str, folder: VFolder) {
+        let (head, tail) = path
             .split_once('/')
             .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((name, None));
+            .unwrap_or((path, None));
         if let Some(tail) = tail {
             if let Some(subfolder) = self.get_folder_mut(head) {
                 subfolder.add_folder(tail);
@@ -37,14 +45,15 @@ impl VFolder {
                 self.add_existing_folder(head, new_folder);
             }
         } else {
-            self.folders.insert(name.to_string(), folder);
+            self.folders.insert(path.to_string(), folder);
         }
     }
-    pub fn add_file(&mut self, name: &str, file: VFile) {
-        let (head, tail) = name
+    /// Recursively add a new file to the folder.
+    pub fn add_file(&mut self, path: &str, file: VFile) {
+        let (head, tail) = path
             .split_once('/')
             .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((name, None));
+            .unwrap_or((path, None));
         if let Some(tail) = tail {
             if let Some(subfolder) = self.get_folder_mut(head) {
                 subfolder.add_file(tail, file);
@@ -54,55 +63,60 @@ impl VFolder {
                 self.add_existing_folder(head, new_folder);
             }
         } else {
-            self.files.insert(name.to_string(), file);
+            self.files.insert(path.to_string(), file);
         }
     }
 
-    pub fn get_folder(&self, name: &str) -> Option<&VFolder> {
-        let (head, tail) = name
+    /// Recursively get a subfolder by path.
+    pub fn get_folder(&self, path: &str) -> Option<&VFolder> {
+        let (head, tail) = path
             .split_once('/')
             .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((name, None));
+            .unwrap_or((path, None));
         if let Some(tail) = tail {
             self.folders.get(head)?.get_folder(tail)
         } else {
-            self.folders.get(name)
+            self.folders.get(path)
         }
     }
-    pub fn get_folder_mut(&mut self, name: &str) -> Option<&mut VFolder> {
-        let (head, tail) = name
+    /// Recursively get a mutable subfolder by path.
+    pub fn get_folder_mut(&mut self, path: &str) -> Option<&mut VFolder> {
+        let (head, tail) = path
             .split_once('/')
             .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((name, None));
+            .unwrap_or((path, None));
         if let Some(tail) = tail {
             self.folders.get_mut(head)?.get_folder_mut(tail)
         } else {
-            self.folders.get_mut(name)
+            self.folders.get_mut(path)
         }
     }
-    pub fn get_file(&self, name: &str) -> Option<&VFile> {
-        let (head, tail) = name
+    /// Recursively get a file by path.
+    pub fn get_file(&self, path: &str) -> Option<&VFile> {
+        let (head, tail) = path
             .split_once('/')
             .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((name, None));
+            .unwrap_or((path, None));
         if let Some(tail) = tail {
             self.folders.get(head)?.get_file(tail)
         } else {
-            self.files.get(name)
+            self.files.get(path)
         }
     }
-    pub fn get_file_mut(&mut self, name: &str) -> Option<&mut VFile> {
-        let (head, tail) = name
+    /// Recursively get a mutable file by path.
+    pub fn get_file_mut(&mut self, path: &str) -> Option<&mut VFile> {
+        let (head, tail) = path
             .split_once('/')
             .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((name, None));
+            .unwrap_or((path, None));
         if let Some(tail) = tail {
             self.folders.get_mut(head)?.get_file_mut(tail)
         } else {
-            self.files.get_mut(name)
+            self.files.get_mut(path)
         }
     }
 
+    /// Place the folder and its contents on the file system.
     pub fn place(&self, path: &Path) -> io::Result<()> {
         fs::create_dir_all(path)?;
         for (name, folder) in &self.folders {
@@ -122,9 +136,12 @@ impl VFolder {
     }
 }
 
+/// File representation in virtual file system
 #[derive(Debug, Clone)]
 pub enum VFile {
+    /// Text file
     Text(String),
+    /// Binary file
     Binary(Vec<u8>),
 }
 
