@@ -7,11 +7,11 @@ use std::{
     path::Path,
 };
 
+use serde::{Deserialize, Serialize};
 use zip::ZipWriter;
 
 /// Folder representation in virtual file system
-#[derive(Debug, Default, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct VFolder {
     folders: HashMap<String, VFolder>,
     files: HashMap<String, VFile>,
@@ -185,6 +185,20 @@ impl VFolder {
 
         files
     }
+
+    /// Recursively merge another folder into this folder.
+    pub fn merge(&mut self, other: Self) {
+        for (name, folder) in other.folders {
+            if let Some(existing_folder) = self.folders.get_mut(&name) {
+                existing_folder.merge(folder);
+            } else {
+                self.folders.insert(name, folder);
+            }
+        }
+        for (name, file) in other.files {
+            self.files.insert(name, file);
+        }
+    }
 }
 
 impl TryFrom<&Path> for VFolder {
@@ -223,8 +237,7 @@ impl TryFrom<&Path> for VFolder {
 }
 
 /// File representation in virtual file system
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VFile {
     /// Text file
     Text(String),

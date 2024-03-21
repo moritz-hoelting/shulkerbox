@@ -10,4 +10,6 @@
 )]
 #![deny(unsafe_code)]
 
+pub mod datapack;
+pub mod util;
 pub mod virtual_fs;
