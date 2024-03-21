@@ -187,6 +187,41 @@ impl VFolder {
     }
 }
 
+impl TryFrom<&Path> for VFolder {
+    type Error = io::Error;
+
+    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+        let mut root_vfolder = VFolder::new();
+        let root_folder = fs::read_dir(value)?;
+        for dir_entry in root_folder {
+            let dir_entry = dir_entry?;
+            let path = dir_entry.path();
+            let name = dir_entry
+                .file_name()
+                .into_string()
+                .map(Some)
+                .unwrap_or_default();
+            if let Some(name) = name {
+                if path.is_dir() {
+                    root_vfolder.add_existing_folder(&name, VFolder::try_from(path.as_path())?);
+                } else if path.is_file() {
+                    let data = fs::read(path)?;
+                    root_vfolder.add_file(&name, VFile::Binary(data));
+                } else {
+                    unreachable!("Path is neither file nor directory");
+                }
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Invalid file name",
+                ));
+            }
+        }
+
+        Ok(root_vfolder)
+    }
+}
+
 /// File representation in virtual file system
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
