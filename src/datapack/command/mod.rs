@@ -1,5 +1,8 @@
 //! Represents a command that can be included in a function.
 
+mod execute;
+pub use execute::Execute;
+
 use serde::{Deserialize, Serialize};
 
 use crate::util::compile::{CompileOptions, MutCompilerState, MutFunctionCompilerState};
@@ -11,6 +14,8 @@ pub enum Command {
     Raw(String),
     /// Message to be printed only in debug mode
     Debug(String),
+    /// Execute command
+    Execute(Execute),
 }
 
 impl Command {
@@ -32,6 +37,7 @@ impl Command {
         match self {
             Self::Raw(command) => command.clone(),
             Self::Debug(message) => compile_debug(message, options),
+            Self::Execute(_) => todo!(),
         }
     }
 }
