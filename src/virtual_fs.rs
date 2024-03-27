@@ -1,13 +1,9 @@
 //! Virtual file system for creating and manipulating files and folders in memory.
 
-use std::{
-    collections::HashMap,
-    fs,
-    io::{self, Write},
-    path::Path,
-};
+use std::{collections::HashMap, fs, io, path::Path};
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "zip")]
 use zip::ZipWriter;
 
 /// Folder representation in virtual file system
@@ -143,8 +139,11 @@ impl VFolder {
         Ok(())
     }
 
+    #[cfg(feature = "zip")]
     /// Zip the folder and its contents into a zip archive.
     pub fn zip(&self, path: &Path) -> io::Result<()> {
+        use io::Write;
+
         let file = fs::File::create(path)?;
         let mut writer = ZipWriter::new(file);
         let virtual_files = self.flatten();
@@ -166,6 +165,7 @@ impl VFolder {
         Ok(())
     }
 
+    #[allow(dead_code)]
     /// Flatten the folder and its contents into a list of files with full paths.
     fn flatten(&self) -> Vec<(String, &VFile)> {
         let mut files = self
