@@ -15,13 +15,10 @@ let mut dp = Datapack::new("shulkerpack", 20) // Create a new datapack with the 
     .with_supported_formats(16..=20) // Add the supported formats of the datapack
     .with_template_folder(Path::new("./template")) // Add a template folder to the datapack. This will include all files in the template folder in the root of the datapack and can be used for including the "pack.png" file
     .unwrap();
-let mut namespace = Namespace::new("shulker"); // Create a new namespace with the name "shulker"
+let namespace = datapack.namespace_mut("shulker"); // Create a new namespace with the name "shulker"
 
-let mut hello_function = Function::new(); // Create a new function
-hello_function.add_command("say Hello, world!".into()); // Add a command to the function
-namespace.add_function("hello", hello_function); // Add the function to the namespace
-
-dp.add_namespace(namespace); // Add the namespace to the datapack
+let hello_function = namespace.function_mut("hello"); // Create a new function
+hello_function.add_command("say Hello, world!"); // Add a command to the function
 
 let v_folder = dp.compile(&CompileOptions::default()); // Compile the datapack with default options
 

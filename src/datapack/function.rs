@@ -2,6 +2,7 @@
 
 use std::sync::Mutex;
 
+use getset::Getters;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -12,20 +13,28 @@ use crate::{
 use super::command::Command;
 
 /// Function that can be called by a command
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Getters)]
 pub struct Function {
     commands: Vec<Command>,
+    /// Name of the function
+    #[get = "pub"]
+    name: String,
+    /// Namespace of the function
+    #[get = "pub"]
+    namespace: String,
 }
 
 impl Function {
-    /// Create a new function.
-    pub fn new() -> Self {
-        Self::default()
+    pub(in crate::datapack) fn new(namespace: &str, name: &str) -> Self {
+        Self {
+            commands: Vec::new(),
+            name: name.to_string(),
+            namespace: namespace.to_string(),
+        }
     }
-
     /// Add a command to the function.
-    pub fn add_command(&mut self, command: Command) {
-        self.commands.push(command);
+    pub fn add_command(&mut self, command: impl Into<Command>) {
+        self.commands.push(command.into());
     }
 
     /// Get the commands of the function.
@@ -40,7 +49,7 @@ impl Function {
         let content = self
             .commands
             .iter()
-            .map(|c| c.compile(options, state, &function_state))
+            .flat_map(|c| c.compile(options, state, &function_state))
             .collect::<Vec<String>>()
             .join("\n");
         VFile::Text(content)

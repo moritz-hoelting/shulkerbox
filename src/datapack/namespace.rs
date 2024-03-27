@@ -21,7 +21,7 @@ pub struct Namespace {
 
 impl Namespace {
     /// Create a new namespace.
-    pub fn new(name: &str) -> Self {
+    pub(in crate::datapack) fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
             functions: HashMap::new(),
@@ -54,9 +54,16 @@ impl Namespace {
         &self.tags
     }
 
-    /// Add a function to the namespace.
-    pub fn add_function(&mut self, name: &str, function: Function) {
-        self.functions.insert(name.to_string(), function);
+    /// Get a function by name.
+    pub fn function(&self, name: &str) -> Option<&Function> {
+        self.functions.get(name)
+    }
+
+    /// Mutably get a function by name or create a new one if it doesn't exist.
+    pub fn function_mut(&mut self, name: &str) -> &mut Function {
+        self.functions
+            .entry(name.to_string())
+            .or_insert_with(|| Function::new(&self.name, name))
     }
 
     /// Add a tag to the namespace.

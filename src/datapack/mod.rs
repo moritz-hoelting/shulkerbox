@@ -4,7 +4,7 @@ mod command;
 mod function;
 mod namespace;
 pub mod tag;
-pub use command::Command;
+pub use command::{Command, Condition, Execute};
 pub use function::Function;
 pub use namespace::Namespace;
 use serde::{Deserialize, Serialize};
@@ -72,13 +72,16 @@ impl Datapack {
         })
     }
 
-    /// Add a namespace to the datapack.
-    pub fn add_namespace(&mut self, namespace: Namespace) {
-        if !namespace.get_main_function().get_commands().is_empty() {
-            self.add_tick(&format!("{}:main", namespace.get_name()));
-        }
+    /// Get a namespace by name.
+    pub fn namespace(&self, name: &str) -> Option<&Namespace> {
+        self.namespaces.get(name)
+    }
+
+    /// Butably get a namespace by name or create a new one if it doesn't exist.
+    pub fn namespace_mut(&mut self, name: &str) -> &mut Namespace {
         self.namespaces
-            .insert(namespace.get_name().to_string(), namespace);
+            .entry(name.to_string())
+            .or_insert_with(|| Namespace::new(name))
     }
 
     /// Add a function to the tick function list.
