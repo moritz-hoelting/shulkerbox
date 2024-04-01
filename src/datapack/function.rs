@@ -42,6 +42,11 @@ impl Function {
         &self.commands
     }
 
+    /// Mutably get the commands of the function.
+    pub fn get_commands_mut(&mut self) -> &mut Vec<Command> {
+        &mut self.commands
+    }
+
     /// Compile the function into a virtual file.
     pub fn compile(&self, options: &CompileOptions, state: &MutCompilerState) -> VFile {
         let function_state = Mutex::new(FunctionCompilerState::default());

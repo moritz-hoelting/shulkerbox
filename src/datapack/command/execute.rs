@@ -34,13 +34,17 @@ impl Execute {
         global_state: &MutCompilerState,
         function_state: &MutFunctionCompilerState,
     ) -> Vec<String> {
-        self.compile_internal(
-            String::from("execute "),
-            false,
-            options,
-            global_state,
-            function_state,
-        )
+        if let Self::Run(cmd) = self {
+            cmd.compile(options, global_state, function_state)
+        } else {
+            self.compile_internal(
+                String::from("execute "),
+                false,
+                options,
+                global_state,
+                function_state,
+            )
+        }
     }
     fn compile_internal(
         &self,
@@ -159,40 +163,15 @@ impl Execute {
                 global_state,
                 function_state,
             ),
-            Self::If(cond, then, el) => {
-                // TODO: group commands if needed and only run else commands if the first commands have not executed
-                let str_cond = cond.clone().compile(options, global_state, function_state);
-                let require_grouping = str_cond.len() > 1;
-                let then = then.compile_internal(
-                    String::new(),
-                    require_grouping,
-                    options,
-                    global_state,
-                    function_state,
-                );
-                let then_commands = combine_conditions_commands(str_cond, then);
-                let el = el
-                    .as_deref()
-                    .map(|el| {
-                        let else_cond =
-                            (!cond.clone()).compile(options, global_state, function_state);
-                        let el = el.compile_internal(
-                            String::new(),
-                            else_cond.len() > 1,
-                            options,
-                            global_state,
-                            function_state,
-                        );
-                        combine_conditions_commands(else_cond, el)
-                    })
-                    .unwrap_or_default();
-
-                then_commands
-                    .into_iter()
-                    .chain(el)
-                    .map(|cmd| prefix.clone() + &cmd + " ")
-                    .collect()
-            }
+            Self::If(cond, then, el) => compile_if_cond(
+                cond,
+                then.as_ref(),
+                el.as_deref(),
+                prefix,
+                options,
+                global_state,
+                function_state,
+            ),
             Self::Run(command) if !require_grouping => command
                 .compile(options, global_state, function_state)
                 .into_iter()
@@ -233,6 +212,74 @@ fn format_execute(
         global_state,
         function_state,
     )
+}
+
+fn compile_if_cond(
+    cond: &Condition,
+    then: &Execute,
+    el: Option<&Execute>,
+    prefix: String,
+    options: &CompileOptions,
+    global_state: &MutCompilerState,
+    function_state: &MutFunctionCompilerState,
+) -> Vec<String> {
+    let str_cond = cond.clone().compile(options, global_state, function_state);
+    let require_grouping = el.is_some() || str_cond.len() > 1;
+    let then = if require_grouping {
+        let mut group_cmd = vec![Command::Execute(then.clone())];
+        if el.is_some() {
+            group_cmd.push("data modify storage shulkerbox:cond if_success set value true".into());
+        }
+        Command::Group(group_cmd)
+            .compile(options, global_state, function_state)
+            .iter()
+            .map(|s| "run ".to_string() + s)
+            .collect()
+    } else {
+        then.compile_internal(
+            String::new(),
+            require_grouping,
+            options,
+            global_state,
+            function_state,
+        )
+    };
+    let then_commands = combine_conditions_commands(str_cond, then);
+    let el = el
+        .map(|el| {
+            let else_cond =
+                (!Condition::Atom("data storage shulkerbox:cond {if_success:1b}".to_string()))
+                    .compile(options, global_state, function_state);
+            let el = el.compile_internal(
+                String::new(),
+                else_cond.len() > 1,
+                options,
+                global_state,
+                function_state,
+            );
+            combine_conditions_commands(else_cond, el)
+                .into_iter()
+                .map(|cmd| (true, cmd))
+                .chain(std::iter::once((
+                    false,
+                    "data remove storage shulkerbox:cond if_success".to_string(),
+                )))
+                .map(|(use_prefix, cmd)| {
+                    if use_prefix {
+                        prefix.clone() + &cmd
+                    } else {
+                        cmd
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    then_commands
+        .into_iter()
+        .map(|cmd| prefix.clone() + &cmd)
+        .chain(el)
+        .collect()
 }
 
 fn combine_conditions_commands(conditions: Vec<String>, commands: Vec<String>) -> Vec<String> {
