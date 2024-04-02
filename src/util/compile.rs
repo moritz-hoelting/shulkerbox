@@ -1,15 +1,13 @@
 //! Compile options for the compiler.
 
-use std::{
-    cell::Cell,
-    collections::VecDeque,
-    sync::{Mutex, Weak},
-};
+use std::{cell::Cell, sync::Mutex};
 
 use getset::Getters;
 use serde::{Deserialize, Serialize};
 
 use crate::datapack::Function;
+
+use super::extendable_queue::ExtendableQueue;
 
 /// Compile options for the compiler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +44,7 @@ pub struct FunctionCompilerState {
     functions: FunctionQueue,
 }
 
-type FunctionQueue = Weak<Mutex<VecDeque<(String, Function)>>>;
+type FunctionQueue = ExtendableQueue<(String, Function)>;
 
 impl FunctionCompilerState {
     /// Create a new function compiler state.
@@ -61,11 +59,6 @@ impl FunctionCompilerState {
 
     /// Add a function to the queue.
     pub fn add_function(&self, name: &str, function: Function) {
-        if let Some(queue) = self.functions.upgrade() {
-            queue
-                .lock()
-                .unwrap()
-                .push_back((name.to_string(), function));
-        }
+        self.functions.push((name.to_string(), function));
     }
 }

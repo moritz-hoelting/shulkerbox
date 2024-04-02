@@ -3,15 +3,15 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+    util::{
+        compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+        extendable_queue::ExtendableQueue,
+    },
     virtual_fs::VFolder,
 };
 
 use super::{function::Function, tag::Tag};
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
-};
+use std::collections::{HashMap, VecDeque};
 
 /// Namespace of a datapack
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,20 +89,10 @@ impl Namespace {
             functions.push_front(("main".to_string(), self.main_function.clone()));
         }
 
-        let functions = Arc::new(Mutex::new(functions));
+        let mut functions = ExtendableQueue::from(functions);
 
-        loop {
-            let Some((path, function)) = ({
-                let mut functions = functions.lock().unwrap();
-                let entry = functions.pop_front();
-                drop(functions);
-                entry
-            }) else {
-                break;
-            };
-
-            let function_state =
-                FunctionCompilerState::new(&path, &self.name, Arc::downgrade(&functions));
+        while let Some((path, function)) = functions.next() {
+            let function_state = FunctionCompilerState::new(&path, &self.name, functions.clone());
             root_folder.add_file(
                 &format!("functions/{}.mcfunction", path),
                 function.compile(options, state, &function_state),
