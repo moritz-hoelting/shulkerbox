@@ -186,20 +186,28 @@ impl Execute {
                 command => command
                     .compile(options, global_state, function_state)
                     .into_iter()
-                    .map(|c| (true, prefix.clone() + "run " + &c))
+                    .map(|c| map_run_cmd(c, &prefix))
                     .collect(),
             },
             Self::Runs(commands) if !require_grouping => commands
                 .iter()
                 .flat_map(|c| c.compile(options, global_state, function_state))
-                .map(|c| (true, prefix.clone() + "run " + &c))
+                .map(|c| map_run_cmd(c, &prefix))
                 .collect(),
             Self::Runs(commands) => Command::Group(commands.clone())
                 .compile(options, global_state, function_state)
                 .into_iter()
-                .map(|c| (true, prefix.clone() + "run " + &c))
+                .map(|c| map_run_cmd(c, &prefix))
                 .collect(),
         }
+    }
+}
+
+fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
+    if cmd.starts_with('#') {
+        (false, cmd)
+    } else {
+        (true, prefix.to_string() + "run " + &cmd)
     }
 }
 

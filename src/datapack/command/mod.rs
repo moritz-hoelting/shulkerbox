@@ -22,6 +22,8 @@ pub enum Command {
     Execute(Execute),
     /// Group of commands to be called instantly after each other
     Group(Vec<Command>),
+    /// Comment to be added to the function
+    Comment(String),
 }
 
 impl Command {
@@ -42,6 +44,7 @@ impl Command {
             Self::Debug(message) => compile_debug(message, options),
             Self::Execute(ex) => ex.compile(options, global_state, function_state),
             Self::Group(commands) => compile_group(commands, options, global_state, function_state),
+            Self::Comment(comment) => vec!["#".to_string() + comment],
         }
     }
 }
