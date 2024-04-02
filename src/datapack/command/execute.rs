@@ -44,6 +44,9 @@ impl Execute {
                 global_state,
                 function_state,
             )
+            .into_iter()
+            .map(|(_, cmd)| cmd)
+            .collect()
         }
     }
     fn compile_internal(
@@ -53,7 +56,7 @@ impl Execute {
         options: &CompileOptions,
         global_state: &MutCompilerState,
         function_state: &FunctionCompilerState,
-    ) -> Vec<String> {
+    ) -> Vec<(bool, String)> {
         match self {
             Self::Align(align, next) => format_execute(
                 prefix,
@@ -183,18 +186,18 @@ impl Execute {
                 command => command
                     .compile(options, global_state, function_state)
                     .into_iter()
-                    .map(|c| prefix.clone() + "run " + &c)
+                    .map(|c| (true, prefix.clone() + "run " + &c))
                     .collect(),
             },
             Self::Runs(commands) if !require_grouping => commands
                 .iter()
                 .flat_map(|c| c.compile(options, global_state, function_state))
-                .map(|c| prefix.clone() + "run " + &c)
+                .map(|c| (true, prefix.clone() + "run " + &c))
                 .collect(),
             Self::Runs(commands) => Command::Group(commands.clone())
                 .compile(options, global_state, function_state)
                 .into_iter()
-                .map(|c| prefix.clone() + "run " + &c)
+                .map(|c| (true, prefix.clone() + "run " + &c))
                 .collect(),
         }
     }
@@ -208,7 +211,7 @@ fn format_execute(
     options: &CompileOptions,
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
-) -> Vec<String> {
+) -> Vec<(bool, String)> {
     next.compile_internal(
         prefix + new,
         require_grouping,
@@ -226,7 +229,7 @@ fn compile_if_cond(
     options: &CompileOptions,
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
-) -> Vec<String> {
+) -> Vec<(bool, String)> {
     let str_cond = cond.clone().compile(options, global_state, function_state);
     let require_grouping = el.is_some() || str_cond.len() > 1;
     let then = if require_grouping {
@@ -241,7 +244,7 @@ fn compile_if_cond(
         Command::Group(group_cmd)
             .compile(options, global_state, function_state)
             .iter()
-            .map(|s| "run ".to_string() + s)
+            .map(|s| (true, "run ".to_string() + s))
             .collect()
     } else {
         then.compile_internal(
@@ -267,33 +270,44 @@ fn compile_if_cond(
             );
             combine_conditions_commands(else_cond, el)
                 .into_iter()
-                .map(|cmd| (true, cmd))
                 .chain(std::iter::once((
                     false,
                     "data remove storage shulkerbox:cond if_success".to_string(),
                 )))
-                .map(|(use_prefix, cmd)| {
-                    if use_prefix {
-                        prefix.clone() + &cmd
-                    } else {
-                        cmd
-                    }
-                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
 
     then_commands
         .into_iter()
-        .map(|cmd| prefix.clone() + &cmd)
         .chain(el)
+        .map(|(use_prefix, cmd)| {
+            let cmd = if use_prefix {
+                prefix.clone() + &cmd
+            } else {
+                cmd
+            };
+            (use_prefix, cmd)
+        })
         .collect()
 }
 
-fn combine_conditions_commands(conditions: Vec<String>, commands: Vec<String>) -> Vec<String> {
+fn combine_conditions_commands(
+    conditions: Vec<String>,
+    commands: Vec<(bool, String)>,
+) -> Vec<(bool, String)> {
     conditions
         .into_iter()
-        .flat_map(|cond| commands.iter().map(move |cmd| cond.clone() + " " + cmd))
+        .flat_map(|cond| {
+            commands.iter().map(move |(use_prefix, cmd)| {
+                let cmd = if *use_prefix {
+                    cond.clone() + " " + cmd
+                } else {
+                    cmd.clone()
+                };
+                (*use_prefix, cmd)
+            })
+        })
         .collect()
 }
 

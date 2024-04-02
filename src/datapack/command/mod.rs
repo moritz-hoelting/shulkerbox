@@ -89,11 +89,13 @@ fn compile_group(
         };
 
         let function_path = {
-            let pre_hash_path =
-                function_state.path().to_owned() + ":" + &generated_functions.to_string();
+            let function_path = function_state.path();
+            let function_path = function_path.strip_prefix("sb/").unwrap_or(function_path);
+
+            let pre_hash_path = function_path.to_owned() + ":" + &generated_functions.to_string();
             let hash = md5::hash(pre_hash_path).to_hex_lowercase();
 
-            "sb/".to_string() + function_state.path() + "/" + &hash[..16]
+            "sb/".to_string() + function_path + "/" + &hash[..16]
         };
 
         let namespace = function_state.namespace();
