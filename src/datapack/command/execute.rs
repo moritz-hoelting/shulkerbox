@@ -1,8 +1,8 @@
-use std::ops::{BitAnd, BitOr, Deref, Not};
+use std::ops::{BitAnd, BitOr, Not};
 
 use serde::{Deserialize, Serialize};
 
-use crate::util::compile::{CompileOptions, MutCompilerState, MutFunctionCompilerState};
+use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
 
 use super::Command;
 
@@ -32,7 +32,7 @@ impl Execute {
         &self,
         options: &CompileOptions,
         global_state: &MutCompilerState,
-        function_state: &MutFunctionCompilerState,
+        function_state: &FunctionCompilerState,
     ) -> Vec<String> {
         if let Self::Run(cmd) = self {
             cmd.compile(options, global_state, function_state)
@@ -52,7 +52,7 @@ impl Execute {
         require_grouping: bool,
         options: &CompileOptions,
         global_state: &MutCompilerState,
-        function_state: &MutFunctionCompilerState,
+        function_state: &FunctionCompilerState,
     ) -> Vec<String> {
         match self {
             Self::Align(align, next) => format_execute(
@@ -172,16 +172,20 @@ impl Execute {
                 global_state,
                 function_state,
             ),
-            Self::Run(command) if !require_grouping => command
-                .compile(options, global_state, function_state)
-                .into_iter()
-                .map(|c| prefix.clone() + "run " + &c)
-                .collect(),
-            Self::Run(command) => Command::Group(vec![command.deref().clone()])
-                .compile(options, global_state, function_state)
-                .into_iter()
-                .map(|c| prefix.clone() + "run " + &c)
-                .collect(),
+            Self::Run(command) => match &**command {
+                Command::Execute(ex) => ex.compile_internal(
+                    prefix,
+                    require_grouping,
+                    options,
+                    global_state,
+                    function_state,
+                ),
+                command => command
+                    .compile(options, global_state, function_state)
+                    .into_iter()
+                    .map(|c| prefix.clone() + "run " + &c)
+                    .collect(),
+            },
             Self::Runs(commands) if !require_grouping => commands
                 .iter()
                 .flat_map(|c| c.compile(options, global_state, function_state))
@@ -203,7 +207,7 @@ fn format_execute(
     require_grouping: bool,
     options: &CompileOptions,
     global_state: &MutCompilerState,
-    function_state: &MutFunctionCompilerState,
+    function_state: &FunctionCompilerState,
 ) -> Vec<String> {
     next.compile_internal(
         prefix + new,
@@ -221,12 +225,16 @@ fn compile_if_cond(
     prefix: String,
     options: &CompileOptions,
     global_state: &MutCompilerState,
-    function_state: &MutFunctionCompilerState,
+    function_state: &FunctionCompilerState,
 ) -> Vec<String> {
     let str_cond = cond.clone().compile(options, global_state, function_state);
     let require_grouping = el.is_some() || str_cond.len() > 1;
     let then = if require_grouping {
-        let mut group_cmd = vec![Command::Execute(then.clone())];
+        let mut group_cmd = match then.clone() {
+            Execute::Run(cmd) => vec![*cmd],
+            Execute::Runs(cmds) => cmds,
+            ex => vec![Command::Execute(ex)],
+        };
         if el.is_some() {
             group_cmd.push("data modify storage shulkerbox:cond if_success set value true".into());
         }
@@ -318,7 +326,7 @@ impl Condition {
         &self,
         _options: &CompileOptions,
         _global_state: &MutCompilerState,
-        _function_state: &MutFunctionCompilerState,
+        _function_state: &FunctionCompilerState,
     ) -> Vec<String> {
         match self.normalize() {
             Self::Atom(a) => vec!["if ".to_string() + &a],

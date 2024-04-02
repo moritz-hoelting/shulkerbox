@@ -1,7 +1,5 @@
 //! Function struct and implementation
 
-use std::sync::Mutex;
-
 use getset::Getters;
 use serde::{Deserialize, Serialize};
 
@@ -48,13 +46,16 @@ impl Function {
     }
 
     /// Compile the function into a virtual file.
-    pub fn compile(&self, options: &CompileOptions, state: &MutCompilerState) -> VFile {
-        let function_state = Mutex::new(FunctionCompilerState::default());
-
+    pub fn compile(
+        &self,
+        options: &CompileOptions,
+        global_state: &MutCompilerState,
+        function_state: &FunctionCompilerState,
+    ) -> VFile {
         let content = self
             .commands
             .iter()
-            .flat_map(|c| c.compile(options, state, &function_state))
+            .flat_map(|c| c.compile(options, global_state, function_state))
             .collect::<Vec<String>>()
             .join("\n");
         VFile::Text(content)

@@ -4,9 +4,10 @@ mod execute;
 
 pub use execute::{Condition, Execute};
 
+use chksum_md5 as md5;
 use serde::{Deserialize, Serialize};
 
-use crate::util::compile::{CompileOptions, MutCompilerState, MutFunctionCompilerState};
+use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
 
 use super::Function;
 
@@ -34,19 +35,13 @@ impl Command {
         &self,
         options: &CompileOptions,
         global_state: &MutCompilerState,
-        function_state: &MutFunctionCompilerState,
+        function_state: &FunctionCompilerState,
     ) -> Vec<String> {
         match self {
             Self::Raw(command) => vec![command.clone()],
             Self::Debug(message) => compile_debug(message, options),
             Self::Execute(ex) => ex.compile(options, global_state, function_state),
-            Self::Group(commands) => {
-                // TODO: implement correctly
-                commands
-                    .iter()
-                    .flat_map(|c| c.compile(options, global_state, function_state))
-                    .collect()
-            }
+            Self::Group(commands) => compile_group(commands, options, global_state, function_state),
         }
     }
 }
@@ -75,5 +70,43 @@ fn compile_debug(message: &str, option: &CompileOptions) -> Vec<String> {
         )]
     } else {
         Vec::new()
+    }
+}
+
+fn compile_group(
+    commands: &[Command],
+    options: &CompileOptions,
+    global_state: &MutCompilerState,
+    function_state: &FunctionCompilerState,
+) -> Vec<String> {
+    if commands.len() > 1 {
+        let generated_functions = {
+            let generated_functions = function_state.generated_functions();
+            let amount = generated_functions.get();
+            generated_functions.set(amount + 1);
+
+            amount
+        };
+
+        let function_path = {
+            let pre_hash_path =
+                function_state.path().to_owned() + ":" + &generated_functions.to_string();
+            let hash = md5::hash(pre_hash_path).to_hex_lowercase();
+
+            "sb/".to_string() + function_state.path() + "/" + &hash[..16]
+        };
+
+        let namespace = function_state.namespace();
+
+        let mut function = Function::new(namespace, &function_path);
+        function.get_commands_mut().extend(commands.iter().cloned());
+        function_state.add_function(&function_path, function);
+
+        vec![format!("function {namespace}:{function_path}")]
+    } else {
+        commands
+            .iter()
+            .flat_map(|c| c.compile(options, global_state, function_state))
+            .collect()
     }
 }

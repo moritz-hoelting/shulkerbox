@@ -3,12 +3,15 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    util::compile::{CompileOptions, MutCompilerState},
+    util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
     virtual_fs::VFolder,
 };
 
 use super::{function::Function, tag::Tag};
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Mutex},
+};
 
 /// Namespace of a datapack
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,16 +79,33 @@ impl Namespace {
         let mut root_folder = VFolder::new();
 
         // Compile functions
-        for (path, function) in &self.functions {
+        let mut functions = self
+            .functions
+            .iter()
+            .map(|(name, content)| (name.clone(), content.clone()))
+            .collect::<VecDeque<_>>();
+
+        if !self.main_function.get_commands().is_empty() {
+            functions.push_front(("main".to_string(), self.main_function.clone()));
+        }
+
+        let functions = Arc::new(Mutex::new(functions));
+
+        loop {
+            let Some((path, function)) = ({
+                let mut functions = functions.lock().unwrap();
+                let entry = functions.pop_front();
+                drop(functions);
+                entry
+            }) else {
+                break;
+            };
+
+            let function_state =
+                FunctionCompilerState::new(&path, &self.name, Arc::downgrade(&functions));
             root_folder.add_file(
                 &format!("functions/{}.mcfunction", path),
-                function.compile(options, state),
-            );
-        }
-        if !self.main_function.get_commands().is_empty() {
-            root_folder.add_file(
-                "functions/main.mcfunction",
-                self.main_function.compile(options, state),
+                function.compile(options, state, &function_state),
             );
         }
 
