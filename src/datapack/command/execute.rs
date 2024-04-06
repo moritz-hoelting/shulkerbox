@@ -238,15 +238,19 @@ fn compile_if_cond(
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<(bool, String)> {
+    // TODO: fix conflicting data storage location when nesting if-else conditions
+
+    let str_then =
+        then.compile_internal(prefix.clone(), false, options, global_state, function_state);
     let str_cond = cond.clone().compile(options, global_state, function_state);
-    let require_grouping = el.is_some() || str_cond.len() > 1;
+    let require_grouping = el.is_some() || str_then.len() > 1;
     let then = if require_grouping {
         let mut group_cmd = match then.clone() {
             Execute::Run(cmd) => vec![*cmd],
             Execute::Runs(cmds) => cmds,
             ex => vec![Command::Execute(ex)],
         };
-        if el.is_some() {
+        if el.is_some() && str_cond.len() <= 1 {
             group_cmd.push("data modify storage shulkerbox:cond if_success set value true".into());
         }
         Command::Group(group_cmd)
@@ -263,8 +267,29 @@ fn compile_if_cond(
             function_state,
         )
     };
-    let then_commands = combine_conditions_commands(str_cond, then);
-    let el = el
+    let each_or_cmd = (str_cond.len() > 1).then(|| {
+        (
+            "data modify storage shulkerbox:cond if_success set value true",
+            combine_conditions_commands(
+                str_cond.clone(),
+                vec![(
+                    true,
+                    "run data modify storage shulkerbox:cond if_success set value true".to_string(),
+                )],
+            ),
+        )
+    });
+    let successful_cond = if each_or_cmd.is_some() {
+        Condition::Atom("data storage shulkerbox:cond {if_success:1b}".to_string()).compile(
+            options,
+            global_state,
+            function_state,
+        )
+    } else {
+        str_cond
+    };
+    let then_commands = combine_conditions_commands(successful_cond, then);
+    let el_commands = el
         .map(|el| {
             let else_cond =
                 (!Condition::Atom("data storage shulkerbox:cond {if_success:1b}".to_string()))
@@ -277,18 +302,25 @@ fn compile_if_cond(
                 function_state,
             );
             combine_conditions_commands(else_cond, el)
-                .into_iter()
-                .chain(std::iter::once((
-                    false,
-                    "data remove storage shulkerbox:cond if_success".to_string(),
-                )))
-                .collect::<Vec<_>>()
         })
         .unwrap_or_default();
 
-    then_commands
+    let reset_success_storage = if each_or_cmd.is_some() || el.is_some() {
+        Some((
+            false,
+            "data remove storage shulkerbox:cond if_success".to_string(),
+        ))
+    } else {
+        None
+    };
+
+    reset_success_storage
+        .clone()
         .into_iter()
-        .chain(el)
+        .chain(each_or_cmd.map(|(_, cmds)| cmds).unwrap_or_default())
+        .chain(then_commands)
+        .chain(el_commands)
+        .chain(reset_success_storage)
         .map(|(use_prefix, cmd)| {
             let cmd = if use_prefix {
                 prefix.clone() + &cmd

@@ -82,7 +82,11 @@ fn compile_group(
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<String> {
-    if commands.len() > 1 {
+    let str_commands = commands
+        .iter()
+        .flat_map(|cmd| cmd.compile(options, global_state, function_state))
+        .collect::<Vec<_>>();
+    if str_commands.len() > 1 {
         let generated_functions = {
             let generated_functions = function_state.generated_functions();
             let amount = generated_functions.get();
@@ -109,9 +113,6 @@ fn compile_group(
 
         vec![format!("function {namespace}:{function_path}")]
     } else {
-        commands
-            .iter()
-            .flat_map(|c| c.compile(options, global_state, function_state))
-            .collect()
+        str_commands
     }
 }
