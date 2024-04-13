@@ -165,9 +165,8 @@ impl VFolder {
         Ok(())
     }
 
-    #[allow(dead_code)]
     /// Flatten the folder and its contents into a list of files with full paths.
-    fn flatten(&self) -> Vec<(String, &VFile)> {
+    pub fn flatten(&self) -> Vec<(String, &VFile)> {
         let mut files = self
             .files
             .iter()
