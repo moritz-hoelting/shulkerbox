@@ -7,11 +7,12 @@ edition = "2021"
 
 [features]
 default = ["zip"]
+serde = ["dep:serde"]
 zip = ["dep:zip"]
 
 [dependencies]
 chksum-md5 = "0.0.0"
 getset = "0.1.2"
-serde = { version = "1.0.197", features = ["derive"] }
+serde = { version = "1.0.197", optional = true, features = ["derive"] }
 serde_json = "1.0.114"
-zip = { version = "0.6.6", default-features = false, features = ["deflate", "time"], optional = true }
+zip = { version = "1.1.1", default-features = false, features = ["deflate", "time"], optional = true }

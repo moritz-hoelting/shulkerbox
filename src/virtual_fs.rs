@@ -2,49 +2,51 @@
 
 use std::{collections::HashMap, fs, io, path::Path};
 
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "zip")]
 use zip::ZipWriter;
 
 /// Folder representation in virtual file system
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone)]
 pub struct VFolder {
     folders: HashMap<String, VFolder>,
     files: HashMap<String, VFile>,
 }
 impl VFolder {
     /// Create a new, empty virtual folder.
-    pub fn new() -> VFolder {
-        VFolder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
             folders: HashMap::new(),
             files: HashMap::new(),
         }
     }
 
     /// Get all direct subfolders in the folder.
-    pub fn get_folders(&self) -> &HashMap<String, VFolder> {
+    #[must_use]
+    pub fn get_folders(&self) -> &HashMap<String, Self> {
         &self.folders
     }
     /// Get all direct files in the folder.
+    #[must_use]
     pub fn get_files(&self) -> &HashMap<String, VFile> {
         &self.files
     }
 
     /// Recursively add a new folder to the folder.
     pub fn add_folder(&mut self, path: &str) {
-        self.add_existing_folder(path, VFolder::new());
+        self.add_existing_folder(path, Self::new());
     }
     /// Recursively add an existing folder to the folder.
-    pub fn add_existing_folder(&mut self, path: &str, folder: VFolder) {
+    pub fn add_existing_folder(&mut self, path: &str, folder: Self) {
         let (head, tail) = path
             .split_once('/')
-            .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((path, None));
+            .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
             if let Some(subfolder) = self.get_folder_mut(head) {
                 subfolder.add_folder(tail);
             } else {
-                let mut new_folder = VFolder::new();
+                let mut new_folder = Self::new();
                 new_folder.add_folder(tail);
                 self.add_existing_folder(head, new_folder);
             }
@@ -56,13 +58,12 @@ impl VFolder {
     pub fn add_file(&mut self, path: &str, file: VFile) {
         let (head, tail) = path
             .split_once('/')
-            .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((path, None));
+            .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
             if let Some(subfolder) = self.get_folder_mut(head) {
                 subfolder.add_file(tail, file);
             } else {
-                let mut new_folder = VFolder::new();
+                let mut new_folder = Self::new();
                 new_folder.add_file(tail, file);
                 self.add_existing_folder(head, new_folder);
             }
@@ -72,11 +73,11 @@ impl VFolder {
     }
 
     /// Recursively get a subfolder by path.
-    pub fn get_folder(&self, path: &str) -> Option<&VFolder> {
+    #[must_use]
+    pub fn get_folder(&self, path: &str) -> Option<&Self> {
         let (head, tail) = path
             .split_once('/')
-            .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((path, None));
+            .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
             self.folders.get(head)?.get_folder(tail)
         } else {
@@ -84,11 +85,10 @@ impl VFolder {
         }
     }
     /// Recursively get a mutable subfolder by path.
-    pub fn get_folder_mut(&mut self, path: &str) -> Option<&mut VFolder> {
+    pub fn get_folder_mut(&mut self, path: &str) -> Option<&mut Self> {
         let (head, tail) = path
             .split_once('/')
-            .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((path, None));
+            .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
             self.folders.get_mut(head)?.get_folder_mut(tail)
         } else {
@@ -96,11 +96,11 @@ impl VFolder {
         }
     }
     /// Recursively get a file by path.
+    #[must_use]
     pub fn get_file(&self, path: &str) -> Option<&VFile> {
         let (head, tail) = path
             .split_once('/')
-            .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((path, None));
+            .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
             self.folders.get(head)?.get_file(tail)
         } else {
@@ -111,8 +111,7 @@ impl VFolder {
     pub fn get_file_mut(&mut self, path: &str) -> Option<&mut VFile> {
         let (head, tail) = path
             .split_once('/')
-            .map(|(h, t)| (h, (!t.is_empty()).then_some(t)))
-            .unwrap_or((path, None));
+            .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
             self.folders.get_mut(head)?.get_file_mut(tail)
         } else {
@@ -121,6 +120,9 @@ impl VFolder {
     }
 
     /// Place the folder and its contents on the file system.
+    ///
+    /// # Errors
+    /// - If the folder cannot be written
     pub fn place(&self, path: &Path) -> io::Result<()> {
         fs::create_dir_all(path)?;
         for (name, folder) in &self.folders {
@@ -141,6 +143,9 @@ impl VFolder {
 
     #[cfg(feature = "zip")]
     /// Zip the folder and its contents into a zip archive.
+    ///
+    /// # Errors
+    /// - If the zip archive cannot be written
     pub fn zip(&self, path: &Path) -> io::Result<()> {
         use io::Write;
 
@@ -149,7 +154,7 @@ impl VFolder {
         let virtual_files = self.flatten();
 
         for (path, file) in virtual_files {
-            writer.start_file(path, Default::default())?;
+            writer.start_file(path, zip::write::SimpleFileOptions::default())?;
             match file {
                 VFile::Text(text) => {
                     writer.write_all(text.as_bytes())?;
@@ -166,6 +171,7 @@ impl VFolder {
     }
 
     /// Flatten the folder and its contents into a list of files with full paths.
+    #[must_use]
     pub fn flatten(&self) -> Vec<(String, &VFile)> {
         let mut files = self
             .files
@@ -177,7 +183,7 @@ impl VFolder {
             let sub_files = folder
                 .flatten()
                 .into_iter()
-                .map(|(path, file)| (format!("{}/{}", name, path), file))
+                .map(|(path, file)| (format!("{name}/{path}"), file))
                 .collect::<Vec<_>>();
             files.extend(sub_files);
         }
@@ -204,19 +210,15 @@ impl TryFrom<&Path> for VFolder {
     type Error = io::Error;
 
     fn try_from(value: &Path) -> Result<Self, Self::Error> {
-        let mut root_vfolder = VFolder::new();
-        let root_folder = fs::read_dir(value)?;
-        for dir_entry in root_folder {
+        let mut root_vfolder = Self::new();
+        let fs_root_folder = fs::read_dir(value)?;
+        for dir_entry in fs_root_folder {
             let dir_entry = dir_entry?;
             let path = dir_entry.path();
-            let name = dir_entry
-                .file_name()
-                .into_string()
-                .map(Some)
-                .unwrap_or_default();
+            let name = dir_entry.file_name().into_string().ok();
             if let Some(name) = name {
                 if path.is_dir() {
-                    root_vfolder.add_existing_folder(&name, VFolder::try_from(path.as_path())?);
+                    root_vfolder.add_existing_folder(&name, Self::try_from(path.as_path())?);
                 } else if path.is_file() {
                     let data = fs::read(path)?;
                     root_vfolder.add_file(&name, VFile::Binary(data));
@@ -236,7 +238,8 @@ impl TryFrom<&Path> for VFolder {
 }
 
 /// File representation in virtual file system
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub enum VFile {
     /// Text file
     Text(String),
@@ -246,17 +249,17 @@ pub enum VFile {
 
 impl From<String> for VFile {
     fn from(value: String) -> Self {
-        VFile::Text(value)
+        Self::Text(value)
     }
 }
 impl From<&str> for VFile {
     fn from(value: &str) -> Self {
-        VFile::Text(value.to_string())
+        Self::Text(value.to_string())
     }
 }
 impl Default for VFile {
     fn default() -> Self {
-        VFile::Text(String::new())
+        Self::Text(String::new())
     }
 }
 

@@ -5,14 +5,14 @@ mod execute;
 pub use execute::{Condition, Execute};
 
 use chksum_md5 as md5;
-use serde::{Deserialize, Serialize};
 
 use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
 
 use super::Function;
 
 /// Represents a command that can be included in a function.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub enum Command {
     /// A command that is already formatted as a string.
     Raw(String),
@@ -28,6 +28,7 @@ pub enum Command {
 
 impl Command {
     /// Create a new raw command.
+    #[must_use]
     pub fn raw(command: &str) -> Self {
         Self::Raw(command.to_string())
     }

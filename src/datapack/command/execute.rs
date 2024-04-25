@@ -1,13 +1,12 @@
 use std::ops::{BitAnd, BitOr, Not};
 
-use serde::{Deserialize, Serialize};
-
 use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
 
 use super::Command;
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub enum Execute {
     Align(String, Box<Execute>),
     Anchored(String, Box<Execute>),
@@ -49,6 +48,7 @@ impl Execute {
             .collect()
         }
     }
+    #[allow(clippy::too_many_lines)]
     fn compile_internal(
         &self,
         prefix: String,
@@ -170,7 +170,7 @@ impl Execute {
                 cond,
                 then.as_ref(),
                 el.as_deref(),
-                prefix,
+                &prefix,
                 options,
                 global_state,
                 function_state,
@@ -233,15 +233,20 @@ fn compile_if_cond(
     cond: &Condition,
     then: &Execute,
     el: Option<&Execute>,
-    prefix: String,
+    prefix: &str,
     options: &CompileOptions,
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<(bool, String)> {
     // TODO: fix conflicting data storage location when nesting if-else conditions
 
-    let str_then =
-        then.compile_internal(prefix.clone(), false, options, global_state, function_state);
+    let str_then = then.compile_internal(
+        prefix.to_string(),
+        false,
+        options,
+        global_state,
+        function_state,
+    );
     let str_cond = cond.clone().compile(options, global_state, function_state);
     let require_grouping = el.is_some() || str_then.len() > 1;
     let then = if require_grouping {
@@ -272,7 +277,7 @@ fn compile_if_cond(
             "data modify storage shulkerbox:cond if_success set value true",
             combine_conditions_commands(
                 str_cond.clone(),
-                vec![(
+                &[(
                     true,
                     "run data modify storage shulkerbox:cond if_success set value true".to_string(),
                 )],
@@ -288,7 +293,7 @@ fn compile_if_cond(
     } else {
         str_cond
     };
-    let then_commands = combine_conditions_commands(successful_cond, then);
+    let then_commands = combine_conditions_commands(successful_cond, &then);
     let el_commands = el
         .map(|el| {
             let else_cond =
@@ -301,7 +306,7 @@ fn compile_if_cond(
                 global_state,
                 function_state,
             );
-            combine_conditions_commands(else_cond, el)
+            combine_conditions_commands(else_cond, &el)
         })
         .unwrap_or_default();
 
@@ -323,7 +328,7 @@ fn compile_if_cond(
         .chain(reset_success_storage)
         .map(|(use_prefix, cmd)| {
             let cmd = if use_prefix {
-                prefix.clone() + &cmd
+                prefix.to_string() + &cmd
             } else {
                 cmd
             };
@@ -334,7 +339,7 @@ fn compile_if_cond(
 
 fn combine_conditions_commands(
     conditions: Vec<String>,
-    commands: Vec<(bool, String)>,
+    commands: &[(bool, String)],
 ) -> Vec<(bool, String)> {
     conditions
         .into_iter()
@@ -352,7 +357,8 @@ fn combine_conditions_commands(
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Condition {
     Atom(String),
     Not(Box<Condition>),
@@ -361,11 +367,12 @@ pub enum Condition {
 }
 impl Condition {
     /// Normalize the condition.
+    #[must_use]
     pub fn normalize(&self) -> Self {
         match self {
             Self::Atom(_) => self.clone(),
             Self::Not(c) => match *c.clone() {
-                Self::Atom(c) => Self::Not(Box::new(Self::Atom(c.clone()))),
+                Self::Atom(c) => Self::Not(Box::new(Self::Atom(c))),
                 Self::Not(c) => c.normalize(),
                 Self::And(c1, c2) => ((!*c1).normalize()) | ((!*c2).normalize()),
                 Self::Or(c1, c2) => ((!*c1).normalize()) & ((!*c2).normalize()),
@@ -376,11 +383,12 @@ impl Condition {
     }
 
     /// Compile the condition into a list of strings.
+    #[allow(clippy::only_used_in_recursion)]
     pub fn compile(
         &self,
-        _options: &CompileOptions,
-        _global_state: &MutCompilerState,
-        _function_state: &FunctionCompilerState,
+        options: &CompileOptions,
+        global_state: &MutCompilerState,
+        function_state: &FunctionCompilerState,
     ) -> Vec<String> {
         match self.normalize() {
             Self::Atom(a) => vec!["if ".to_string() + &a],
@@ -389,16 +397,16 @@ impl Condition {
                 _ => unreachable!("Cannot happen because of normalization"),
             },
             Self::And(c1, c2) => {
-                let c1 = c1.compile(_options, _global_state, _function_state);
-                let c2 = c2.compile(_options, _global_state, _function_state);
+                let c1 = c1.compile(options, global_state, function_state);
+                let c2 = c2.compile(options, global_state, function_state);
 
                 c1.into_iter()
                     .flat_map(|c1| c2.iter().map(move |c2| c1.clone() + " " + c2))
                     .collect()
             }
             Self::Or(c1, c2) => {
-                let mut c1 = c1.compile(_options, _global_state, _function_state);
-                let c2 = c2.compile(_options, _global_state, _function_state);
+                let mut c1 = c1.compile(options, global_state, function_state);
+                let c2 = c2.compile(options, global_state, function_state);
                 c1.extend(c2);
                 c1
             }
@@ -408,7 +416,7 @@ impl Condition {
 
 impl From<&str> for Condition {
     fn from(s: &str) -> Self {
-        Condition::Atom(s.to_string())
+        Self::Atom(s.to_string())
     }
 }
 
@@ -416,21 +424,21 @@ impl Not for Condition {
     type Output = Self;
 
     fn not(self) -> Self {
-        Condition::Not(Box::new(self))
+        Self::Not(Box::new(self))
     }
 }
 impl BitAnd for Condition {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self {
-        Condition::And(Box::new(self), Box::new(rhs))
+        Self::And(Box::new(self), Box::new(rhs))
     }
 }
 impl BitOr for Condition {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self {
-        Condition::Or(Box::new(self), Box::new(rhs))
+        Self::Or(Box::new(self), Box::new(rhs))
     }
 }
 
@@ -470,11 +478,8 @@ mod tests {
         );
         assert_eq!(
             (c1.clone() & c2.clone() | c3.clone() & c1.clone()).normalize(),
-            c1.clone() & c2.clone() | c3.clone() & c1.clone()
+            c1.clone() & c2.clone() | c3 & c1.clone()
         );
-        assert_eq!(
-            (!(c1.clone() | c2.clone())).normalize(),
-            !c1.clone() & !c2.clone()
-        );
+        assert_eq!((!(c1.clone() | c2.clone())).normalize(), !c1 & !c2);
     }
 }

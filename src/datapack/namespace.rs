@@ -1,11 +1,9 @@
 //! Namespace of a datapack
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     util::{
         compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
-        extendable_queue::ExtendableQueue,
+        ExtendableQueue,
     },
     virtual_fs::VFolder,
 };
@@ -14,7 +12,8 @@ use super::{function::Function, tag::Tag};
 use std::collections::{HashMap, VecDeque};
 
 /// Namespace of a datapack
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Namespace {
     name: String,
     functions: HashMap<String, Function>,
@@ -34,11 +33,13 @@ impl Namespace {
     }
 
     /// Get the name of the namespace.
+    #[must_use]
     pub fn get_name(&self) -> &str {
         &self.name
     }
 
     /// Get the main function of the namespace.
+    #[must_use]
     pub fn get_main_function(&self) -> &Function {
         &self.main_function
     }
@@ -48,16 +49,19 @@ impl Namespace {
     }
 
     /// Get the functions of the namespace.
+    #[must_use]
     pub fn get_functions(&self) -> &HashMap<String, Function> {
         &self.functions
     }
 
     /// Get the tags of the namespace.
+    #[must_use]
     pub fn get_tags(&self) -> &HashMap<String, Tag> {
         &self.tags
     }
 
     /// Get a function by name.
+    #[must_use]
     pub fn function(&self, name: &str) -> Option<&Function> {
         self.functions.get(name)
     }
@@ -94,7 +98,7 @@ impl Namespace {
         while let Some((path, function)) = functions.next() {
             let function_state = FunctionCompilerState::new(&path, &self.name, functions.clone());
             root_folder.add_file(
-                &format!("functions/{}.mcfunction", path),
+                &format!("functions/{path}.mcfunction"),
                 function.compile(options, state, &function_state),
             );
         }
@@ -102,7 +106,7 @@ impl Namespace {
         // Compile tags
         for (path, tag) in &self.tags {
             let (tag_type, vfile) = tag.compile(options, state);
-            root_folder.add_file(&format!("tags/{}/{}.json", tag_type, path), vfile);
+            root_folder.add_file(&format!("tags/{tag_type}/{path}.json"), vfile);
         }
 
         root_folder

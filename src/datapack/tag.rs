@@ -1,14 +1,13 @@
 //! A tag for various types.
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     util::compile::{CompileOptions, MutCompilerState},
     virtual_fs::VFile,
 };
 
 /// A tag for various types.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Tag {
     r#type: TagType,
     replace: bool,
@@ -16,6 +15,7 @@ pub struct Tag {
 }
 impl Tag {
     /// Create a new tag.
+    #[must_use]
     pub fn new(r#type: TagType, replace: bool) -> Self {
         Self {
             r#type,
@@ -48,7 +48,9 @@ impl Tag {
 }
 
 /// The type of a tag.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::module_name_repetitions)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub enum TagType {
     /// A tag for blocks.
     Blocks,
@@ -81,7 +83,9 @@ impl ToString for TagType {
 }
 
 /// The value of a tag.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::module_name_repetitions)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub enum TagValue {
     /// A simple value, either a resource location or an id of another tag.
     Simple(String),
@@ -100,6 +104,7 @@ impl From<&str> for TagValue {
 }
 impl TagValue {
     /// Compile the tag value into a JSON value.
+    #[must_use]
     pub fn compile(&self) -> serde_json::Value {
         match self {
             Self::Simple(value) => serde_json::Value::String(value.clone()),

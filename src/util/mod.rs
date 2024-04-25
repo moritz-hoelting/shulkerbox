@@ -1,4 +1,7 @@
 //! Utility functions for the Shulkerbox project.
 
 pub mod compile;
-pub mod extendable_queue;
+mod extendable_queue;
+
+#[doc(inline)]
+pub use extendable_queue::ExtendableQueue;

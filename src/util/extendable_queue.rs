@@ -37,11 +37,13 @@ impl<T> ExtendableQueue<T> {
     }
 
     /// Get the queue.
+    #[must_use]
     pub fn get(&self) -> &Arc<RwLock<VecDeque<T>>> {
         &self.queue
     }
 
     /// Get a weak reference to the queue.
+    #[must_use]
     pub fn get_weak(&self) -> Weak<RwLock<VecDeque<T>>> {
         Arc::downgrade(&self.queue)
     }
@@ -52,16 +54,19 @@ impl<T> ExtendableQueue<T> {
     }
 
     /// Get the length of the queue.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.queue.read().unwrap().len()
     }
 
     /// Check if the queue is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.queue.read().unwrap().is_empty()
     }
 
     /// Get and remove the next item without needing mutable access.
+    #[must_use]
     pub fn pop_front(&self) -> Option<T> {
         self.queue.write().unwrap().pop_front()
     }

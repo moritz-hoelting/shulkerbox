@@ -3,14 +3,15 @@
 use std::{cell::Cell, sync::Mutex};
 
 use getset::Getters;
-use serde::{Deserialize, Serialize};
 
 use crate::datapack::Function;
 
 use super::extendable_queue::ExtendableQueue;
 
 /// Compile options for the compiler.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(missing_copy_implementations, clippy::module_name_repetitions)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct CompileOptions {
     /// Whether to compile in debug mode.
     pub debug: bool,
@@ -23,7 +24,9 @@ impl Default for CompileOptions {
 }
 
 /// State of the compiler that can change during compilation.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[allow(missing_copy_implementations)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default)]
 pub struct CompilerState {}
 /// Mutex for the compiler state.
 pub type MutCompilerState = Mutex<CompilerState>;
@@ -48,6 +51,7 @@ type FunctionQueue = ExtendableQueue<(String, Function)>;
 
 impl FunctionCompilerState {
     /// Create a new function compiler state.
+    #[must_use]
     pub fn new(path: &str, namespace: &str, functions: FunctionQueue) -> Self {
         Self {
             generated_functions: Cell::new(0),

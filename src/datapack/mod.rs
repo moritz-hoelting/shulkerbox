@@ -7,7 +7,6 @@ pub mod tag;
 pub use command::{Command, Condition, Execute};
 pub use function::Function;
 pub use namespace::Namespace;
-use serde::{Deserialize, Serialize};
 
 use std::{collections::HashMap, ops::RangeInclusive, path::Path, sync::Mutex};
 
@@ -17,7 +16,8 @@ use crate::{
 };
 
 /// A Minecraft datapack.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Datapack {
     // TODO: Support filter and overlays
     name: String,
@@ -32,6 +32,7 @@ pub struct Datapack {
 
 impl Datapack {
     /// Create a new Minecraft datapack.
+    #[must_use]
     pub fn new(name: &str, pack_format: u8) -> Self {
         Self {
             name: name.to_string(),
@@ -46,6 +47,7 @@ impl Datapack {
     }
 
     /// Set the description of the datapack.
+    #[must_use]
     pub fn with_description(self, description: &str) -> Self {
         Self {
             description: description.to_string(),
@@ -54,6 +56,7 @@ impl Datapack {
     }
 
     /// Set the supported pack formats of the datapack.
+    #[must_use]
     pub fn with_supported_formats(self, supported_formats: RangeInclusive<u8>) -> Self {
         Self {
             supported_formats: Some(supported_formats),
@@ -62,6 +65,9 @@ impl Datapack {
     }
 
     /// Set the custom files of the datapack.
+    ///
+    /// # Errors
+    /// - If loading the directory fails
     pub fn with_template_folder(self, path: &Path) -> std::io::Result<Self> {
         let mut template = VFolder::try_from(path)?;
         template.merge(self.custom_files);
@@ -73,6 +79,7 @@ impl Datapack {
     }
 
     /// Get a namespace by name.
+    #[must_use]
     pub fn namespace(&self, name: &str) -> Option<&Namespace> {
         self.namespaces.get(name)
     }
@@ -100,6 +107,7 @@ impl Datapack {
     }
 
     /// Compile the pack into a virtual folder.
+    #[must_use]
     pub fn compile(&self, options: &CompileOptions) -> VFolder {
         let compiler_state = Mutex::new(CompilerState::default());
 
@@ -152,7 +160,7 @@ fn generate_mcmeta(dp: &Datapack, _options: &CompileOptions, _state: &MutCompile
         content["pack"]["supported_formats"] = serde_json::json!({
             "min_inclusive": *supported_formats.start(),
             "max_inclusive": *supported_formats.end()
-        })
+        });
     }
 
     VFile::Text(content.to_string())

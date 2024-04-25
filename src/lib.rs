@@ -1,14 +1,15 @@
 //! Shulkerbox is a library for creating Minecraft data packs.
 
-#![warn(
-    missing_docs,
+#![deny(
+    unsafe_code,
     missing_debug_implementations,
-    nonstandard_style,
-    clippy::complexity,
-    clippy::style,
-    clippy::suspicious
+    missing_copy_implementations,
+    clippy::nursery,
+    rustdoc::broken_intra_doc_links,
+    clippy::missing_errors_doc
 )]
-#![deny(unsafe_code)]
+#![warn(clippy::all, clippy::pedantic)]
+#![allow(clippy::missing_panics_doc, clippy::missing_const_for_fn)]
 
 pub mod datapack;
 pub mod util;

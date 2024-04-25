@@ -1,7 +1,6 @@
 //! Function struct and implementation
 
 use getset::Getters;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
@@ -11,7 +10,8 @@ use crate::{
 use super::command::Command;
 
 /// Function that can be called by a command
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Getters)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, Getters)]
 pub struct Function {
     commands: Vec<Command>,
     /// Name of the function
@@ -36,6 +36,7 @@ impl Function {
     }
 
     /// Get the commands of the function.
+    #[must_use]
     pub fn get_commands(&self) -> &Vec<Command> {
         &self.commands
     }
