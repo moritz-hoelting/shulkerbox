@@ -20,7 +20,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Datapack {
     // TODO: Support filter and overlays
-    name: String,
     description: String,
     pack_format: u8,
     supported_formats: Option<RangeInclusive<u8>>,
@@ -33,9 +32,8 @@ pub struct Datapack {
 impl Datapack {
     /// Create a new Minecraft datapack.
     #[must_use]
-    pub fn new(name: &str, pack_format: u8) -> Self {
+    pub fn new(pack_format: u8) -> Self {
         Self {
-            name: name.to_string(),
             description: String::from("A Minecraft datapack created with shulkerbox"),
             pack_format,
             supported_formats: None,
