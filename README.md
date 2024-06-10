@@ -2,6 +2,14 @@
 
 Create datapacks with all the features of rust you like.
 
+## Usage
+
+Add the following to your dependencies in `Cargo.toml`:
+```toml
+[dependencies]
+shulkerbox = { git = "https://github.com/moritz-hoelting/shulkerbox" }
+```
+
 ## Example Usage
 
 ```rust
