@@ -192,17 +192,29 @@ impl VFolder {
     }
 
     /// Recursively merge another folder into this folder.
-    pub fn merge(&mut self, other: Self) {
+    /// Returns a list of paths that were replaced by other.
+    pub fn merge(&mut self, other: Self) -> Vec<String> {
+        self._merge(other, "")
+    }
+
+    fn _merge(&mut self, other: Self, prefix: &str) -> Vec<String> {
+        let mut replaced = Vec::new();
         for (name, folder) in other.folders {
             if let Some(existing_folder) = self.folders.get_mut(&name) {
-                existing_folder.merge(folder);
+                let replaced_folder = existing_folder._merge(folder, &format!("{prefix}{name}/"));
+                replaced.extend(replaced_folder);
             } else {
                 self.folders.insert(name, folder);
             }
         }
         for (name, file) in other.files {
-            self.files.insert(name, file);
+            let replaced_file = self.files.insert(name.clone(), file);
+            if replaced_file.is_some() {
+                replaced.push(format!("{prefix}{name}"));
+            }
         }
+
+        replaced
     }
 }
 
