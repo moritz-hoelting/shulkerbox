@@ -33,3 +33,10 @@ let v_folder = dp.compile(&CompileOptions::default()); // Compile the datapack w
 v_folder.place(Path::new("./dist")).unwrap(); // Place the datapack in the dist folder
 v_folder.zip(Path::new("./dist.zip")).unwrap(); // Zip the datapack to the dist.zip file
 ```
+
+## Contributing
+
+Pull requests are welcome. For major changes, please open an issue first
+to discuss what you would like to change.
+
+Please make sure to update tests as appropriate.
