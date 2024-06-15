@@ -79,7 +79,10 @@ impl Namespace {
     }
 
     /// Compile the namespace into a virtual folder.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn compile(&self, options: &CompileOptions, state: &MutCompilerState) -> VFolder {
+        tracing::debug!("Compiling namespace");
+
         let mut root_folder = VFolder::new();
 
         // Compile functions

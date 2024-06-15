@@ -47,12 +47,16 @@ impl Function {
     }
 
     /// Compile the function into a virtual file.
+    #[must_use]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn compile(
         &self,
         options: &CompileOptions,
         global_state: &MutCompilerState,
         function_state: &FunctionCompilerState,
     ) -> VFile {
+        tracing::trace!("Compiling function '{}'", self.name);
+
         let content = self
             .commands
             .iter()

@@ -106,7 +106,10 @@ impl Datapack {
 
     /// Compile the pack into a virtual folder.
     #[must_use]
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn compile(&self, options: &CompileOptions) -> VFolder {
+        tracing::debug!("Compiling datapack: {:?}", self);
+
         let compiler_state = Mutex::new(CompilerState::default());
 
         let mut root_folder = self.custom_files.clone();
