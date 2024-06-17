@@ -1,9 +1,7 @@
 use std::path::Path;
 
-use shulkerbox::{
-    datapack::{Command, Condition, Datapack, Execute},
-    util::compile::CompileOptions,
-};
+// import the prelude to get all the necessary structs
+use shulkerbox::prelude::*;
 
 fn main() {
     // create a new datapack

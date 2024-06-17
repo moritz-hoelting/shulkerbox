@@ -1,14 +1,12 @@
 //! Represents a command that can be included in a function.
 
 mod execute;
-
 pub use execute::{Condition, Execute};
 
 use chksum_md5 as md5;
 
-use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
-
 use super::Function;
+use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
 
 /// Represents a command that can be included in a function.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -100,9 +98,11 @@ fn compile_group(
         .iter()
         .map(|cmd| cmd.get_count(options))
         .sum::<usize>();
+    // only create a function if there are more than one command
     if command_count > 1 {
         let uid = function_state.request_uid();
 
+        // calculate a hashed path for the function in the `sb` subfolder
         let function_path = {
             let function_path = function_state.path();
             let function_path = function_path.strip_prefix("sb/").unwrap_or(function_path);
@@ -115,6 +115,7 @@ fn compile_group(
 
         let namespace = function_state.namespace();
 
+        // create a new function with the commands
         let mut function = Function::new(namespace, &function_path);
         function.get_commands_mut().extend(commands.iter().cloned());
         function_state.add_function(&function_path, function);

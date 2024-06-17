@@ -82,7 +82,7 @@ impl Datapack {
         self.namespaces.get(name)
     }
 
-    /// Butably get a namespace by name or create a new one if it doesn't exist.
+    /// Mutably get a namespace by name or create a new one if it doesn't exist.
     pub fn namespace_mut(&mut self, name: &str) -> &mut Namespace {
         self.namespaces
             .entry(name.to_string())

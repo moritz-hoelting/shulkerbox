@@ -37,6 +37,8 @@ impl Execute {
         global_state: &MutCompilerState,
         function_state: &FunctionCompilerState,
     ) -> Vec<String> {
+        // Directly compile the command if it is a run command, skipping the execute part
+        // Otherwise, compile the execute command using internal function
         if let Self::Run(cmd) = self {
             cmd.compile(options, global_state, function_state)
         } else {
@@ -53,6 +55,8 @@ impl Execute {
         }
     }
 
+    /// Compile the execute command into strings with the given prefix.
+    /// Each first tuple element is a boolean indicating if the prefix should be used for that command.
     fn compile_internal(
         &self,
         prefix: String,
@@ -72,19 +76,15 @@ impl Execute {
             | Self::Positioned(arg, next)
             | Self::Rotated(arg, next)
             | Self::Store(arg, next)
-            | Self::Summon(arg, next) => format_execute(
-                prefix,
-                &format!("{op} {arg} ", op = self.variant_name()),
-                next,
+            | Self::Summon(arg, next) => next.compile_internal(
+                format!("{prefix}{op} {arg} ", op = self.variant_name()),
                 require_grouping,
                 options,
                 global_state,
                 function_state,
             ),
-            Self::AsAt(selector, next) => format_execute(
-                prefix,
-                &format!("as {selector} at @s "),
-                next,
+            Self::AsAt(selector, next) => next.compile_internal(
+                format!("{prefix}as {selector} at @s "),
                 require_grouping,
                 options,
                 global_state,
@@ -167,6 +167,7 @@ impl Execute {
 }
 
 /// Combine command parts, respecting if the second part is a comment
+/// The first tuple element is a boolean indicating if the prefix should be used
 fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
     if cmd.starts_with('#') {
         (false, cmd)
@@ -175,25 +176,8 @@ fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
     }
 }
 
-/// Format the execute command, compiling the next command
-fn format_execute(
-    prefix: String,
-    new: &str,
-    next: &Execute,
-    require_grouping: bool,
-    options: &CompileOptions,
-    global_state: &MutCompilerState,
-    function_state: &FunctionCompilerState,
-) -> Vec<(bool, String)> {
-    next.compile_internal(
-        prefix + new,
-        require_grouping,
-        options,
-        global_state,
-        function_state,
-    )
-}
-
+/// Compile an if condition command.
+/// The first tuple element is a boolean indicating if the prefix should be used for that command.
 #[tracing::instrument(skip_all)]
 fn compile_if_cond(
     cond: &Condition,
@@ -208,6 +192,7 @@ fn compile_if_cond(
 
     let str_cond = cond.clone().compile(options, global_state, function_state);
     let require_grouping_uid = (el.is_some() || then_count > 1).then(|| {
+        // calculate a unique condition id for the else check
         let uid = function_state.request_uid();
         let pre_hash = function_state.path().to_owned() + ":" + &uid.to_string();
 
@@ -215,11 +200,14 @@ fn compile_if_cond(
     });
     #[allow(clippy::option_if_let_else)]
     let then = if let Some(success_uid) = require_grouping_uid.as_deref() {
+        // prepare commands for grouping
         let mut group_cmd = match then.clone() {
             Execute::Run(cmd) => vec![*cmd],
             Execute::Runs(cmds) => cmds,
             ex => vec![Command::Execute(ex)],
         };
+        // add success condition to the group
+        // this condition will be checked after the group ran to determine if the else part should be executed
         if el.is_some() && str_cond.len() <= 1 {
             group_cmd.push(
                 format!("data modify storage shulkerbox:cond {success_uid} set value true")
@@ -241,6 +229,7 @@ fn compile_if_cond(
             function_state,
         )
     };
+    // if the conditions have multiple parts joined by a disjunction, commands need to be grouped
     let each_or_cmd = (str_cond.len() > 1).then(|| {
         let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
             tracing::error!("No success_uid found for each_or_cmd, using default");
@@ -257,6 +246,7 @@ fn compile_if_cond(
             ),
         )
     });
+    // build the condition for each then command
     let successful_cond = if each_or_cmd.is_some() {
         let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
             tracing::error!("No success_uid found for each_or_cmd, using default");
@@ -270,7 +260,9 @@ fn compile_if_cond(
     } else {
         str_cond
     };
+    // combine the conditions with the then commands
     let then_commands = combine_conditions_commands(successful_cond, &then);
+    // build the else part
     let el_commands = el
         .map(|el| {
             let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
@@ -291,6 +283,7 @@ fn compile_if_cond(
         })
         .unwrap_or_default();
 
+    // reset the success storage if needed
     let reset_success_storage = if each_or_cmd.is_some() || el.is_some() {
         let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
             tracing::error!("No success_uid found for each_or_cmd, using default");
@@ -304,6 +297,7 @@ fn compile_if_cond(
         None
     };
 
+    // combine all parts
     reset_success_storage
         .clone()
         .into_iter()
@@ -330,6 +324,7 @@ fn combine_conditions_commands(
         .into_iter()
         .flat_map(|cond| {
             commands.iter().map(move |(use_prefix, cmd)| {
+                // combine the condition with the command if it uses a prefix
                 let cmd = if *use_prefix {
                     cond.clone() + " " + cmd
                 } else {
@@ -351,7 +346,8 @@ pub enum Condition {
     Or(Box<Condition>, Box<Condition>),
 }
 impl Condition {
-    /// Normalize the condition.
+    /// Normalize the condition to eliminate complex negations.
+    /// Uses De Morgan's laws to simplify the condition.
     #[must_use]
     pub fn normalize(&self) -> Self {
         match self {
@@ -359,43 +355,77 @@ impl Condition {
             Self::Not(c) => match *c.clone() {
                 Self::Atom(c) => Self::Not(Box::new(Self::Atom(c))),
                 Self::Not(c) => c.normalize(),
-                Self::And(c1, c2) => ((!*c1).normalize()) | ((!*c2).normalize()),
-                Self::Or(c1, c2) => ((!*c1).normalize()) & ((!*c2).normalize()),
+                Self::And(a, b) => ((!*a).normalize()) | ((!*b).normalize()),
+                Self::Or(a, b) => ((!*a).normalize()) & ((!*b).normalize()),
             },
-            Self::And(c1, c2) => c1.normalize() & c2.normalize(),
-            Self::Or(c1, c2) => c1.normalize() | c2.normalize(),
+            Self::And(a, b) => a.normalize() & b.normalize(),
+            Self::Or(a, b) => a.normalize() | b.normalize(),
         }
     }
 
-    /// Compile the condition into a list of strings.
+    /// Convert the condition into a truth table.
+    /// This will expand the condition into all possible combinations of its atoms.
+    /// All vector elements are in disjunction with each other and do not contain disjunctions and complex negations in them.
+    #[must_use]
+    pub fn to_truth_table(&self) -> Vec<Self> {
+        match self.normalize() {
+            Self::Atom(_) | Self::Not(_) => vec![self.clone()],
+            Self::Or(a, b) => a
+                .to_truth_table()
+                .into_iter()
+                .chain(b.to_truth_table())
+                .collect(),
+            Self::And(a, b) => {
+                let a = a.to_truth_table();
+                let b = b.to_truth_table();
+
+                a.into_iter()
+                    .flat_map(|el1| {
+                        b.iter()
+                            .map(move |el2| Self::And(Box::new(el1.clone()), Box::new(el2.clone())))
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// Convert the condition into a string.
+    ///
+    /// Will fail if the condition contains an `Or` variant. Use `compile` instead.
+    fn str_cond(&self) -> Option<String> {
+        match self {
+            Self::Atom(s) => Some("if ".to_string() + &s),
+            Self::Not(n) => match *(*n).clone() {
+                Self::Atom(s) => Some("unless ".to_string() + &s),
+                _ => None,
+            },
+            Self::And(a, b) => {
+                let a = a.str_cond()?;
+                let b = b.str_cond()?;
+
+                Some(a + " " + &b)
+            }
+            Self::Or(..) => None,
+        }
+    }
+
+    /// Compile the condition into a list of strings that can be used in Minecraft.
     #[allow(clippy::only_used_in_recursion)]
     pub fn compile(
         &self,
-        options: &CompileOptions,
-        global_state: &MutCompilerState,
-        function_state: &FunctionCompilerState,
+        _options: &CompileOptions,
+        _global_state: &MutCompilerState,
+        _function_state: &FunctionCompilerState,
     ) -> Vec<String> {
-        match self.normalize() {
-            Self::Atom(a) => vec!["if ".to_string() + &a],
-            Self::Not(n) => match n.as_ref() {
-                Self::Atom(a) => vec!["unless ".to_string() + a],
-                _ => unreachable!("Cannot happen because of normalization"),
-            },
-            Self::And(c1, c2) => {
-                let c1 = c1.compile(options, global_state, function_state);
-                let c2 = c2.compile(options, global_state, function_state);
+        let truth_table = self.to_truth_table();
 
-                c1.into_iter()
-                    .flat_map(|c1| c2.iter().map(move |c2| c1.clone() + " " + c2))
-                    .collect()
-            }
-            Self::Or(c1, c2) => {
-                let mut c1 = c1.compile(options, global_state, function_state);
-                let c2 = c2.compile(options, global_state, function_state);
-                c1.extend(c2);
-                c1
-            }
-        }
+        truth_table
+            .into_iter()
+            .map(|c| {
+                c.str_cond()
+                    .expect("Truth table should not contain Or variants")
+            })
+            .collect()
     }
 }
 
@@ -431,6 +461,7 @@ impl BitOr for Condition {
 mod tests {
     use super::*;
 
+    #[allow(clippy::redundant_clone)]
     #[test]
     fn test_condition() {
         let c1 = Condition::Atom("foo".to_string());
@@ -463,8 +494,57 @@ mod tests {
         );
         assert_eq!(
             (c1.clone() & c2.clone() | c3.clone() & c1.clone()).normalize(),
-            c1.clone() & c2.clone() | c3 & c1.clone()
+            c1.clone() & c2.clone() | c3.clone() & c1.clone()
         );
-        assert_eq!((!(c1.clone() | c2.clone())).normalize(), !c1 & !c2);
+        assert_eq!(
+            (!(c1.clone() | c2.clone())).normalize(),
+            !c1.clone() & !c2.clone()
+        );
+        assert_eq!(
+            (!(c1.clone() & c2.clone())).normalize(),
+            !c1.clone() | !c2.clone()
+        );
+    }
+
+    #[allow(clippy::redundant_clone)]
+    #[test]
+    fn test_truth_table() {
+        let c1 = Condition::Atom("foo".to_string());
+        let c2 = Condition::Atom("bar".to_string());
+        let c3 = Condition::Atom("baz".to_string());
+        let c4 = Condition::Atom("foobar".to_string());
+
+        assert_eq!(
+            (c1.clone() & c2.clone()).to_truth_table(),
+            vec![c1.clone() & c2.clone()]
+        );
+
+        assert_eq!(
+            (c1.clone() & c2.clone() & c3.clone()).to_truth_table(),
+            vec![c1.clone() & c2.clone() & c3.clone()]
+        );
+
+        assert_eq!(
+            (c1.clone() | c2.clone()).to_truth_table(),
+            vec![c1.clone(), c2.clone()]
+        );
+
+        assert_eq!(
+            ((c1.clone() | c2.clone()) & c3.clone()).to_truth_table(),
+            vec![c1.clone() & c3.clone(), c2.clone() & c3.clone()]
+        );
+
+        assert_eq!(
+            ((c1.clone() & c2.clone()) | c3.clone()).to_truth_table(),
+            vec![c1.clone() & c2.clone(), c3.clone()]
+        );
+
+        assert_eq!(
+            (c1.clone() & !(c2.clone() | (c3.clone() & c4.clone()))).to_truth_table(),
+            vec![
+                c1.clone() & (!c2.clone() & !c3.clone()),
+                c1.clone() & (!c2.clone() & !c4.clone())
+            ]
+        );
     }
 }

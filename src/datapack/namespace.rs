@@ -85,7 +85,7 @@ impl Namespace {
 
         let mut root_folder = VFolder::new();
 
-        // Compile functions
+        // collect functions
         let mut functions = self
             .functions
             .iter()
@@ -96,8 +96,8 @@ impl Namespace {
             functions.push_front(("main".to_string(), self.main_function.clone()));
         }
 
+        // compile all functions, allow adding new functions while compiling
         let mut functions = ExtendableQueue::from(functions);
-
         while let Some((path, function)) = functions.next() {
             let function_state = FunctionCompilerState::new(&path, &self.name, functions.clone());
             root_folder.add_file(
@@ -106,7 +106,7 @@ impl Namespace {
             );
         }
 
-        // Compile tags
+        // compile tags
         for (path, tag) in &self.tags {
             let (tag_type, vfile) = tag.compile(options, state);
             root_folder.add_file(&format!("tags/{tag_type}/{path}.json"), vfile);

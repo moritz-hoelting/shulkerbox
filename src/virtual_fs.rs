@@ -39,10 +39,12 @@ impl VFolder {
     }
     /// Recursively add an existing folder to the folder.
     pub fn add_existing_folder(&mut self, path: &str, folder: Self) {
+        // extract first folder name and the rest of the path
         let (head, tail) = path
             .split_once('/')
             .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
+            // if the folder already exists, add the subfolder to it
             if let Some(subfolder) = self.get_folder_mut(head) {
                 subfolder.add_folder(tail);
             } else {
@@ -56,10 +58,12 @@ impl VFolder {
     }
     /// Recursively add a new file to the folder.
     pub fn add_file(&mut self, path: &str, file: VFile) {
+        // extract first folder name and the rest of the path
         let (head, tail) = path
             .split_once('/')
             .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
+            // if the folder already exists, add the file to it
             if let Some(subfolder) = self.get_folder_mut(head) {
                 subfolder.add_file(tail, file);
             } else {
@@ -75,6 +79,7 @@ impl VFolder {
     /// Recursively get a subfolder by path.
     #[must_use]
     pub fn get_folder(&self, path: &str) -> Option<&Self> {
+        // extract first folder name and the rest of the path
         let (head, tail) = path
             .split_once('/')
             .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
@@ -86,6 +91,7 @@ impl VFolder {
     }
     /// Recursively get a mutable subfolder by path.
     pub fn get_folder_mut(&mut self, path: &str) -> Option<&mut Self> {
+        // extract first folder name and the rest of the path
         let (head, tail) = path
             .split_once('/')
             .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
@@ -98,6 +104,7 @@ impl VFolder {
     /// Recursively get a file by path.
     #[must_use]
     pub fn get_file(&self, path: &str) -> Option<&VFile> {
+        // extract first folder name and the rest of the path
         let (head, tail) = path
             .split_once('/')
             .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
@@ -109,6 +116,7 @@ impl VFolder {
     }
     /// Recursively get a mutable file by path.
     pub fn get_file_mut(&mut self, path: &str) -> Option<&mut VFile> {
+        // extract first folder name and the rest of the path
         let (head, tail) = path
             .split_once('/')
             .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
@@ -125,9 +133,11 @@ impl VFolder {
     /// - If the folder cannot be written
     pub fn place(&self, path: &Path) -> io::Result<()> {
         fs::create_dir_all(path)?;
+        // place each subfolder recursively
         for (name, folder) in &self.folders {
             folder.place(&path.join(name))?;
         }
+        // create each file
         for (name, file) in &self.files {
             match file {
                 VFile::Text(text) => {
@@ -149,10 +159,12 @@ impl VFolder {
     pub fn zip(&self, path: &Path) -> io::Result<()> {
         use io::Write;
 
+        // open target file
         let file = fs::File::create(path)?;
         let mut writer = ZipWriter::new(file);
         let virtual_files = self.flatten();
 
+        // write each file to the zip archive
         for (path, file) in virtual_files {
             writer.start_file(path, zip::write::SimpleFileOptions::default())?;
             match file {
@@ -232,8 +244,8 @@ impl TryFrom<&Path> for VFolder {
                 if path.is_dir() {
                     root_vfolder.add_existing_folder(&name, Self::try_from(path.as_path())?);
                 } else if path.is_file() {
-                    let data = fs::read(path)?;
-                    root_vfolder.add_file(&name, VFile::Binary(data));
+                    let file = VFile::try_from(path.as_path())?;
+                    root_vfolder.add_file(&name, file);
                 } else {
                     unreachable!("Path is neither file nor directory");
                 }
@@ -272,6 +284,15 @@ impl From<&str> for VFile {
 impl Default for VFile {
     fn default() -> Self {
         Self::Text(String::new())
+    }
+}
+
+impl TryFrom<&Path> for VFile {
+    type Error = io::Error;
+
+    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+        let data = fs::read(value)?;
+        Ok(Self::Binary(data))
     }
 }
 
