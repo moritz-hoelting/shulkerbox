@@ -1,6 +1,6 @@
 //! Compile options for the compiler.
 
-use std::{cell::Cell, sync::Mutex};
+use std::sync::Mutex;
 
 use getset::Getters;
 
@@ -32,11 +32,10 @@ pub struct CompilerState {}
 pub type MutCompilerState = Mutex<CompilerState>;
 
 /// State of the compiler for each function that can change during compilation.
-#[derive(Debug, Clone, Getters)]
+#[derive(Debug, Getters)]
 pub struct FunctionCompilerState {
-    /// Number of generated functions in the current function.
-    #[get = "pub"]
-    generated_functions: Cell<usize>,
+    /// Next unique identifier.
+    uid_counter: Mutex<usize>,
     /// Path of the current function.
     #[get = "pub"]
     path: String,
@@ -54,7 +53,7 @@ impl FunctionCompilerState {
     #[must_use]
     pub fn new(path: &str, namespace: &str, functions: FunctionQueue) -> Self {
         Self {
-            generated_functions: Cell::new(0),
+            uid_counter: Mutex::new(0),
             namespace: namespace.to_string(),
             path: path.to_string(),
             functions,
@@ -64,5 +63,13 @@ impl FunctionCompilerState {
     /// Add a function to the queue.
     pub fn add_function(&self, name: &str, function: Function) {
         self.functions.push((name.to_string(), function));
+    }
+
+    #[must_use]
+    pub fn request_uid(&self) -> usize {
+        let mut guard = self.uid_counter.lock().unwrap();
+        let uid = *guard;
+        *guard += 1;
+        uid
     }
 }

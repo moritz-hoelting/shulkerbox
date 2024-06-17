@@ -130,17 +130,17 @@ impl Datapack {
                 tick_tag.add_value(tag::TagValue::Simple(function.to_owned()));
             }
             data_folder.add_file(
-                "minecraft/tags/functions/tick.json",
+                "minecraft/tags/function/tick.json",
                 tick_tag.compile_no_state(options).1,
             );
         }
         if !self.load.is_empty() {
             let mut load_tag = tag::Tag::new(tag::TagType::Functions, false);
-            for function in &self.tick {
+            for function in &self.load {
                 load_tag.add_value(tag::TagValue::Simple(function.to_owned()));
             }
             data_folder.add_file(
-                "minecraft/tags/functions/load.json",
+                "minecraft/tags/function/load.json",
                 load_tag.compile_no_state(options).1,
             );
         }

@@ -101,7 +101,7 @@ impl Namespace {
         while let Some((path, function)) = functions.next() {
             let function_state = FunctionCompilerState::new(&path, &self.name, functions.clone());
             root_folder.add_file(
-                &format!("functions/{path}.mcfunction"),
+                &format!("function/{path}.mcfunction"),
                 function.compile(options, state, &function_state),
             );
         }

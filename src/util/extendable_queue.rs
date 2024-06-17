@@ -11,7 +11,7 @@ pub struct ExtendableQueue<T> {
     queue: Arc<RwLock<VecDeque<T>>>,
 }
 
-impl Default for ExtendableQueue<String> {
+impl<T> Default for ExtendableQueue<T> {
     fn default() -> Self {
         Self {
             queue: Arc::new(RwLock::new(VecDeque::new())),

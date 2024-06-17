@@ -48,6 +48,18 @@ impl Command {
             Self::Comment(comment) => vec!["#".to_string() + comment],
         }
     }
+
+    /// Get the count of the commands this command will compile into.
+    #[must_use]
+    fn get_count(&self, options: &CompileOptions) -> usize {
+        match self {
+            Self::Comment(_) => 0,
+            Self::Debug(_) => usize::from(options.debug),
+            Self::Raw(cmd) => cmd.split('\n').count(),
+            Self::Execute(ex) => ex.get_count(options),
+            Self::Group(_) => 1,
+        }
+    }
 }
 
 impl From<&str> for Command {
@@ -77,30 +89,25 @@ fn compile_debug(message: &str, option: &CompileOptions) -> Vec<String> {
     }
 }
 
+#[tracing::instrument(skip_all, fields(commands = ?commands))]
 fn compile_group(
     commands: &[Command],
     options: &CompileOptions,
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<String> {
-    let str_commands = commands
+    let command_count = commands
         .iter()
-        .flat_map(|cmd| cmd.compile(options, global_state, function_state))
-        .collect::<Vec<_>>();
-    if str_commands.len() > 1 {
-        let generated_functions = {
-            let generated_functions = function_state.generated_functions();
-            let amount = generated_functions.get();
-            generated_functions.set(amount + 1);
-
-            amount
-        };
+        .map(|cmd| cmd.get_count(options))
+        .sum::<usize>();
+    if command_count > 1 {
+        let uid = function_state.request_uid();
 
         let function_path = {
             let function_path = function_state.path();
             let function_path = function_path.strip_prefix("sb/").unwrap_or(function_path);
 
-            let pre_hash_path = function_path.to_owned() + ":" + &generated_functions.to_string();
+            let pre_hash_path = function_path.to_owned() + ":" + &uid.to_string();
             let hash = md5::hash(pre_hash_path).to_hex_lowercase();
 
             "sb/".to_string() + function_path + "/" + &hash[..16]
@@ -114,6 +121,9 @@ fn compile_group(
 
         vec![format!("function {namespace}:{function_path}")]
     } else {
-        str_commands
+        commands
+            .iter()
+            .flat_map(|cmd| cmd.compile(options, global_state, function_state))
+            .collect::<Vec<_>>()
     }
 }

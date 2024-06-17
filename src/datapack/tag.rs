@@ -71,12 +71,12 @@ pub enum TagType {
 impl ToString for TagType {
     fn to_string(&self) -> String {
         match self {
-            Self::Blocks => "blocks".to_string(),
-            Self::Fluids => "fluids".to_string(),
-            Self::Items => "items".to_string(),
-            Self::Entities => "entity_types".to_string(),
-            Self::GameEvents => "game_events".to_string(),
-            Self::Functions => "functions".to_string(),
+            Self::Blocks => "block".to_string(),
+            Self::Fluids => "fluid".to_string(),
+            Self::Items => "item".to_string(),
+            Self::Entities => "entity_type".to_string(),
+            Self::GameEvents => "game_event".to_string(),
+            Self::Functions => "function".to_string(),
             Self::Others(path) => path.to_string(),
         }
     }

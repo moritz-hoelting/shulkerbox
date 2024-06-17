@@ -1,8 +1,12 @@
 use std::ops::{BitAnd, BitOr, Not};
 
-use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
+use chksum_md5 as md5;
 
 use super::Command;
+use crate::util::{
+    compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+    ExtendableQueue,
+};
 
 #[allow(missing_docs)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -48,7 +52,7 @@ impl Execute {
             .collect()
         }
     }
-    #[allow(clippy::too_many_lines)]
+
     fn compile_internal(
         &self,
         prefix: String,
@@ -58,36 +62,19 @@ impl Execute {
         function_state: &FunctionCompilerState,
     ) -> Vec<(bool, String)> {
         match self {
-            Self::Align(align, next) => format_execute(
+            Self::Align(arg, next)
+            | Self::Anchored(arg, next)
+            | Self::As(arg, next)
+            | Self::At(arg, next)
+            | Self::Facing(arg, next)
+            | Self::In(arg, next)
+            | Self::On(arg, next)
+            | Self::Positioned(arg, next)
+            | Self::Rotated(arg, next)
+            | Self::Store(arg, next)
+            | Self::Summon(arg, next) => format_execute(
                 prefix,
-                &format!("align {align} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Anchored(anchor, next) => format_execute(
-                prefix,
-                &format!("anchored {anchor} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::As(selector, next) => format_execute(
-                prefix,
-                &format!("as {selector} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::At(selector, next) => format_execute(
-                prefix,
-                &format!("at {selector} "),
+                &format!("{op} {arg} ", op = self.variant_name()),
                 next,
                 require_grouping,
                 options,
@@ -97,69 +84,6 @@ impl Execute {
             Self::AsAt(selector, next) => format_execute(
                 prefix,
                 &format!("as {selector} at @s "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Facing(facing, next) => format_execute(
-                prefix,
-                &format!("facing {facing} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::In(dim, next) => format_execute(
-                prefix,
-                &format!("in {dim} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::On(dim, next) => format_execute(
-                prefix,
-                &format!("on {dim} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Positioned(pos, next) => format_execute(
-                prefix,
-                &format!("positioned {pos} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Rotated(rot, next) => format_execute(
-                prefix,
-                &format!("rotated {rot} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Store(store, next) => format_execute(
-                prefix,
-                &format!("store {store} "),
-                next,
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Summon(entity, next) => format_execute(
-                prefix,
-                &format!("summon {entity} "),
                 next,
                 require_grouping,
                 options,
@@ -201,8 +125,48 @@ impl Execute {
                 .collect(),
         }
     }
+
+    /// Get the count of the commands the execute command will compile into.
+    #[tracing::instrument(skip(options))]
+    pub(super) fn get_count(&self, options: &CompileOptions) -> usize {
+        let global_state = MutCompilerState::default();
+        let function_state =
+            FunctionCompilerState::new("[INTERNAL]", "[INTERNAL]", ExtendableQueue::default());
+
+        self.compile_internal(
+            String::new(),
+            false,
+            options,
+            &global_state,
+            &function_state,
+        )
+        .len()
+    }
+
+    /// Get the variant name of the execute command.
+    #[must_use]
+    pub fn variant_name(&self) -> &str {
+        match self {
+            Self::Align(..) => "align",
+            Self::Anchored(..) => "anchored",
+            Self::As(..) => "as",
+            Self::At(..) => "at",
+            Self::AsAt(..) => "as_at",
+            Self::Facing(..) => "facing",
+            Self::In(..) => "in",
+            Self::On(..) => "on",
+            Self::Positioned(..) => "positioned",
+            Self::Rotated(..) => "rotated",
+            Self::Store(..) => "store",
+            Self::Summon(..) => "summon",
+            Self::If(..) => "if",
+            Self::Run(..) => "run",
+            Self::Runs(..) => "runs",
+        }
+    }
 }
 
+/// Combine command parts, respecting if the second part is a comment
 fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
     if cmd.starts_with('#') {
         (false, cmd)
@@ -211,6 +175,7 @@ fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
     }
 }
 
+/// Format the execute command, compiling the next command
 fn format_execute(
     prefix: String,
     new: &str,
@@ -229,6 +194,7 @@ fn format_execute(
     )
 }
 
+#[tracing::instrument(skip_all)]
 fn compile_if_cond(
     cond: &Condition,
     then: &Execute,
@@ -238,25 +204,28 @@ fn compile_if_cond(
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<(bool, String)> {
-    // TODO: fix conflicting data storage location when nesting if-else conditions
+    let then_count = then.get_count(options);
 
-    let str_then = then.compile_internal(
-        prefix.to_string(),
-        false,
-        options,
-        global_state,
-        function_state,
-    );
     let str_cond = cond.clone().compile(options, global_state, function_state);
-    let require_grouping = el.is_some() || str_then.len() > 1;
-    let then = if require_grouping {
+    let require_grouping_uid = (el.is_some() || then_count > 1).then(|| {
+        let uid = function_state.request_uid();
+        let pre_hash = function_state.path().to_owned() + ":" + &uid.to_string();
+
+        md5::hash(pre_hash).to_hex_lowercase()
+    });
+    #[allow(clippy::option_if_let_else)]
+    let then = if let Some(success_uid) = require_grouping_uid.as_deref() {
         let mut group_cmd = match then.clone() {
             Execute::Run(cmd) => vec![*cmd],
             Execute::Runs(cmds) => cmds,
             ex => vec![Command::Execute(ex)],
         };
         if el.is_some() && str_cond.len() <= 1 {
-            group_cmd.push("data modify storage shulkerbox:cond if_success set value true".into());
+            group_cmd.push(
+                format!("data modify storage shulkerbox:cond {success_uid} set value true")
+                    .as_str()
+                    .into(),
+            );
         }
         Command::Group(group_cmd)
             .compile(options, global_state, function_state)
@@ -266,26 +235,34 @@ fn compile_if_cond(
     } else {
         then.compile_internal(
             String::new(),
-            require_grouping,
+            require_grouping_uid.is_some(),
             options,
             global_state,
             function_state,
         )
     };
     let each_or_cmd = (str_cond.len() > 1).then(|| {
+        let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
+            tracing::error!("No success_uid found for each_or_cmd, using default");
+            "if_success"
+        });
         (
-            "data modify storage shulkerbox:cond if_success set value true",
+            format!("data modify storage shulkerbox:cond {success_uid} set value true"),
             combine_conditions_commands(
                 str_cond.clone(),
                 &[(
                     true,
-                    "run data modify storage shulkerbox:cond if_success set value true".to_string(),
+                    format!("run data modify storage shulkerbox:cond {success_uid} set value true"),
                 )],
             ),
         )
     });
     let successful_cond = if each_or_cmd.is_some() {
-        Condition::Atom("data storage shulkerbox:cond {if_success:1b}".to_string()).compile(
+        let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
+            tracing::error!("No success_uid found for each_or_cmd, using default");
+            "if_success"
+        });
+        Condition::Atom(format!("data storage shulkerbox:cond {{{success_uid}:1b}}")).compile(
             options,
             global_state,
             function_state,
@@ -296,8 +273,12 @@ fn compile_if_cond(
     let then_commands = combine_conditions_commands(successful_cond, &then);
     let el_commands = el
         .map(|el| {
+            let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
+                tracing::error!("No success_uid found for each_or_cmd, using default");
+                "if_success"
+            });
             let else_cond =
-                (!Condition::Atom("data storage shulkerbox:cond {if_success:1b}".to_string()))
+                (!Condition::Atom(format!("data storage shulkerbox:cond {{{success_uid}:1b}}")))
                     .compile(options, global_state, function_state);
             let el = el.compile_internal(
                 String::new(),
@@ -311,9 +292,13 @@ fn compile_if_cond(
         .unwrap_or_default();
 
     let reset_success_storage = if each_or_cmd.is_some() || el.is_some() {
+        let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
+            tracing::error!("No success_uid found for each_or_cmd, using default");
+            "if_success"
+        });
         Some((
             false,
-            "data remove storage shulkerbox:cond if_success".to_string(),
+            format!("data remove storage shulkerbox:cond {success_uid}"),
         ))
     } else {
         None
