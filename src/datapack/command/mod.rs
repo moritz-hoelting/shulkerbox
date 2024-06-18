@@ -1,12 +1,17 @@
 //! Represents a command that can be included in a function.
 
 mod execute;
+use std::{collections::HashMap, ops::RangeInclusive, sync::OnceLock};
+
 pub use execute::{Condition, Execute};
 
 use chksum_md5 as md5;
 
 use super::Function;
-use crate::util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState};
+use crate::{
+    prelude::Datapack,
+    util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+};
 
 /// Represents a command that can be included in a function.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -56,6 +61,16 @@ impl Command {
             Self::Raw(cmd) => cmd.split('\n').count(),
             Self::Execute(ex) => ex.get_count(options),
             Self::Group(_) => 1,
+        }
+    }
+
+    /// Check whether the command is valid with the given pack format.
+    #[must_use]
+    pub fn validate(&self, pack_formats: &RangeInclusive<u8>) -> bool {
+        match self {
+            Self::Comment(_) | Self::Debug(_) | Self::Group(_) => true,
+            Self::Raw(cmd) => validate_raw_cmd(cmd, pack_formats),
+            Self::Execute(ex) => ex.validate(pack_formats),
         }
     }
 }
@@ -127,4 +142,127 @@ fn compile_group(
             .flat_map(|cmd| cmd.compile(options, global_state, function_state))
             .collect::<Vec<_>>()
     }
+}
+
+#[allow(clippy::too_many_lines)]
+fn validate_raw_cmd(cmd: &str, pack_formats: &RangeInclusive<u8>) -> bool {
+    static CMD_FORMATS: OnceLock<HashMap<&str, RangeInclusive<u8>>> = OnceLock::new();
+    let cmd_formats = CMD_FORMATS.get_or_init(|| {
+        const LATEST: u8 = Datapack::LATEST_FORMAT;
+        const ANY: RangeInclusive<u8> = 0..=LATEST;
+        const fn to(to: u8) -> RangeInclusive<u8> {
+            0..=to
+        }
+        const fn from(from: u8) -> RangeInclusive<u8> {
+            from..=LATEST
+        }
+
+        const ANY_CMD: &[&str] = &[
+            "advancement",
+            "ban",
+            "ban-ip",
+            "banlist",
+            "clear",
+            "clone",
+            "debug",
+            "defaultgamemode",
+            "deop",
+            "difficulty",
+            "effect",
+            "enchant",
+            "execute",
+            "experience",
+            "fill",
+            "gamemode",
+            "gamerule",
+            "give",
+            "help",
+            "kick",
+            "kill",
+            "list",
+            "locate",
+            "me",
+            "msg",
+            "op",
+            "pardon",
+            "pardon-ip",
+            "particle",
+            "playsound",
+            "publish",
+            "recipe",
+            "reload",
+            "save-all",
+            "save-off",
+            "save-on",
+            "say",
+            "scoreboard",
+            "seed",
+            "setblock",
+            "setidletimeout",
+            "setworldspawn",
+            "spawnpoint",
+            "spreadplayers",
+            "stop",
+            "stopsound",
+            "summon",
+            "teleport",
+            "tell",
+            "tellraw",
+            "time",
+            "title",
+            "tp",
+            "trigger",
+            "w",
+            "weather",
+            "whitelist",
+            "worldborder",
+            "xp",
+        ];
+
+        let mut map = HashMap::new();
+
+        for cmd in ANY_CMD {
+            map.insert(*cmd, ANY);
+        }
+        map.insert("attribute", from(6));
+        map.insert("bossbar", from(4));
+        map.insert("damage", from(12));
+        map.insert("data", from(4));
+        map.insert("datapack", from(4));
+        map.insert("fillbiome", from(12));
+        map.insert("forceload", from(4));
+        map.insert("function", from(4));
+        map.insert("replaceitem", to(6));
+        map.insert("item", from(7));
+        map.insert("jfr", from(8));
+        map.insert("loot", from(4));
+        map.insert("perf", from(7));
+        map.insert("place", from(10));
+        map.insert("placefeature", 9..=9);
+        map.insert("random", from(18));
+        map.insert("return", from(15));
+        map.insert("ride", from(12));
+        map.insert("schedule", from(4));
+        map.insert("spectate", from(5));
+        map.insert("tag", from(4));
+        map.insert("team", from(4));
+        map.insert("teammsg", from(4));
+        map.insert("tick", from(22));
+        map.insert("tm", from(4));
+        map.insert("transfer", from(41));
+
+        map
+    });
+
+    cmd.split_ascii_whitespace().next().map_or(true, |cmd| {
+        cmd_formats.get(cmd).map_or(true, |range| {
+            let start_cmd = range.start();
+            let end_cmd = range.end();
+
+            let start_pack = pack_formats.start();
+            let end_pack = pack_formats.end();
+
+            start_cmd <= start_pack && end_cmd >= end_pack
+        })
+    })
 }

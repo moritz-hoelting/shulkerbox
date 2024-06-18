@@ -1,5 +1,7 @@
 //! Function struct and implementation
 
+use std::ops::RangeInclusive;
+
 use getset::Getters;
 
 use crate::{
@@ -64,5 +66,11 @@ impl Function {
             .collect::<Vec<String>>()
             .join("\n");
         VFile::Text(content)
+    }
+
+    // Check whether the function is valid with the given pack format.
+    #[must_use]
+    pub fn validate(&self, pack_formats: &RangeInclusive<u8>) -> bool {
+        self.commands.iter().all(|c| c.validate(pack_formats))
     }
 }

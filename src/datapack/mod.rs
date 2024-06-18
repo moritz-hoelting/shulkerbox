@@ -28,6 +28,8 @@ pub struct Datapack {
 }
 
 impl Datapack {
+    pub(crate) const LATEST_FORMAT: u8 = 48;
+
     /// Create a new Minecraft datapack.
     #[must_use]
     pub fn new(pack_format: u8) -> Self {
@@ -105,9 +107,17 @@ impl Datapack {
     }
 
     /// Compile the pack into a virtual folder.
+    ///
+    /// The pack format in the compile options will be overridden by the pack format of the datapack.
     #[must_use]
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn compile(&self, options: &CompileOptions) -> VFolder {
+        let pack_formats = self
+            .supported_formats
+            .clone()
+            .unwrap_or(self.pack_format..=self.pack_format);
+        let options = &options.clone().with_pack_formats(pack_formats);
+
         tracing::debug!("Compiling datapack: {:?}", self);
 
         let compiler_state = Mutex::new(CompilerState::default());
@@ -125,6 +135,18 @@ impl Datapack {
 
         root_folder.add_existing_folder("data", data_folder);
         root_folder
+    }
+
+    /// Check whether the datapack is valid with the given pack format.
+    #[must_use]
+    pub fn validate(&self) -> bool {
+        let pack_formats = self
+            .supported_formats
+            .clone()
+            .unwrap_or(self.pack_format..=self.pack_format);
+        self.namespaces
+            .values()
+            .all(|namespace| namespace.validate(&pack_formats))
     }
 }
 

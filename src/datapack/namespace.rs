@@ -12,7 +12,10 @@ use super::{
     function::Function,
     tag::{Tag, TagType},
 };
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    ops::RangeInclusive,
+};
 
 /// Namespace of a datapack
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -75,8 +78,8 @@ impl Namespace {
     #[must_use]
     pub fn tag_mut(&mut self, name: &str, tag_type: TagType) -> &mut Tag {
         self.tags
-            .entry((name.to_string(), tag_type.clone()))
-            .or_insert_with(|| Tag::new(tag_type, false))
+            .entry((name.to_string(), tag_type))
+            .or_insert_with(|| Tag::new(false))
     }
 
     /// Compile the namespace into a virtual folder.
@@ -116,5 +119,13 @@ impl Namespace {
         }
 
         root_folder
+    }
+
+    /// Check whether the namespace is valid with the given pack format.
+    #[must_use]
+    pub fn validate(&self, pack_formats: &RangeInclusive<u8>) -> bool {
+        self.functions
+            .values()
+            .all(|function| function.validate(pack_formats))
     }
 }

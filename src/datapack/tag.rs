@@ -9,25 +9,17 @@ use crate::{
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Tag {
-    r#type: TagType,
     replace: bool,
     values: Vec<TagValue>,
 }
 impl Tag {
     /// Create a new tag.
     #[must_use]
-    pub fn new(r#type: TagType, replace: bool) -> Self {
+    pub fn new(replace: bool) -> Self {
         Self {
-            r#type,
             replace,
             values: Vec::new(),
         }
-    }
-
-    /// Get the type of the tag.
-    #[must_use]
-    pub fn get_type(&self) -> &TagType {
-        &self.r#type
     }
 
     /// Get whether the tag should replace existing values.

@@ -1,4 +1,4 @@
-use std::ops::{BitAnd, BitOr, Not};
+use std::ops::{BitAnd, BitOr, Not, RangeInclusive};
 
 use chksum_md5 as md5;
 
@@ -164,12 +164,39 @@ impl Execute {
             Self::Runs(..) => "runs",
         }
     }
+
+    /// Check whether the execute command is valid with the given pack format.
+    #[must_use]
+    pub fn validate(&self, pack_formats: &RangeInclusive<u8>) -> bool {
+        match self {
+            Self::Run(cmd) => cmd.validate(pack_formats),
+            Self::Runs(cmds) => cmds.iter().all(|cmd| cmd.validate(pack_formats)),
+            Self::Facing(_, next)
+            | Self::Store(_, next)
+            | Self::Positioned(_, next)
+            | Self::Rotated(_, next)
+            | Self::In(_, next)
+            | Self::As(_, next)
+            | Self::At(_, next)
+            | Self::AsAt(_, next)
+            | Self::Align(_, next)
+            | Self::Anchored(_, next) => pack_formats.start() >= &4 && next.validate(pack_formats),
+            Self::If(_, next, el) => {
+                pack_formats.start() >= &4
+                    && next.validate(pack_formats)
+                    && el.as_deref().map_or(true, |el| el.validate(pack_formats))
+            }
+            Self::Summon(_, next) | Self::On(_, next) => {
+                pack_formats.start() >= &12 && next.validate(pack_formats)
+            }
+        }
+    }
 }
 
 /// Combine command parts, respecting if the second part is a comment
 /// The first tuple element is a boolean indicating if the prefix should be used
 fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
-    if cmd.starts_with('#') {
+    if cmd.starts_with('#') || cmd.is_empty() || cmd.chars().all(char::is_whitespace) {
         (false, cmd)
     } else {
         (true, prefix.to_string() + "run " + &cmd)
