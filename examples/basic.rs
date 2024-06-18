@@ -32,8 +32,7 @@ fn main() {
         )),
     )));
 
-    // get the main function of the namespace "test" and add a command
-    namespace.get_main_function_mut().add_command("say tick");
+    dp.add_load("test:foo");
 
     // compile the datapack
     let v_folder = dp.compile(&CompileOptions::default());

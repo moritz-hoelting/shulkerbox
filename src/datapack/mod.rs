@@ -24,8 +24,6 @@ pub struct Datapack {
     pack_format: u8,
     supported_formats: Option<RangeInclusive<u8>>,
     namespaces: HashMap<String, Namespace>,
-    tick: Vec<String>,
-    load: Vec<String>,
     custom_files: VFolder,
 }
 
@@ -38,8 +36,6 @@ impl Datapack {
             pack_format,
             supported_formats: None,
             namespaces: HashMap::new(),
-            tick: Vec::new(),
-            load: Vec::new(),
             custom_files: VFolder::new(),
         }
     }
@@ -91,12 +87,16 @@ impl Datapack {
 
     /// Add a function to the tick function list.
     pub fn add_tick(&mut self, function: &str) {
-        self.tick.push(function.to_string());
+        self.namespace_mut("minecraft")
+            .tag_mut("tick", tag::TagType::Functions)
+            .add_value(tag::TagValue::Simple(function.to_string()));
     }
 
     /// Add a function to the load function list.
     pub fn add_load(&mut self, function: &str) {
-        self.load.push(function.to_string());
+        self.namespace_mut("minecraft")
+            .tag_mut("load", tag::TagType::Functions)
+            .add_value(tag::TagValue::Simple(function.to_string()));
     }
 
     /// Add a custom file to the datapack.
@@ -121,28 +121,6 @@ impl Datapack {
         for (name, namespace) in &self.namespaces {
             let namespace_folder = namespace.compile(options, &compiler_state);
             data_folder.add_existing_folder(name, namespace_folder);
-        }
-
-        // Compile tick and load tag
-        if !self.tick.is_empty() {
-            let mut tick_tag = tag::Tag::new(tag::TagType::Functions, false);
-            for function in &self.tick {
-                tick_tag.add_value(tag::TagValue::Simple(function.to_owned()));
-            }
-            data_folder.add_file(
-                "minecraft/tags/function/tick.json",
-                tick_tag.compile_no_state(options).1,
-            );
-        }
-        if !self.load.is_empty() {
-            let mut load_tag = tag::Tag::new(tag::TagType::Functions, false);
-            for function in &self.load {
-                load_tag.add_value(tag::TagValue::Simple(function.to_owned()));
-            }
-            data_folder.add_file(
-                "minecraft/tags/function/load.json",
-                load_tag.compile_no_state(options).1,
-            );
         }
 
         root_folder.add_existing_folder("data", data_folder);

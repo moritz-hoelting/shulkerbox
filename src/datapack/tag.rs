@@ -24,25 +24,46 @@ impl Tag {
         }
     }
 
+    /// Get the type of the tag.
+    #[must_use]
+    pub fn get_type(&self) -> &TagType {
+        &self.r#type
+    }
+
+    /// Get whether the tag should replace existing values.
+    #[must_use]
+    pub fn get_replace(&self) -> bool {
+        self.replace
+    }
+
+    /// Set whether the tag should replace existing values.
+    pub fn set_replace(&mut self, replace: bool) {
+        self.replace = replace;
+    }
+
+    /// Get the values of the tag.
+    #[must_use]
+    pub fn get_values(&self) -> &Vec<TagValue> {
+        &self.values
+    }
+
     /// Add a value to the tag.
     pub fn add_value(&mut self, value: TagValue) {
         self.values.push(value);
     }
 
     /// Compile the tag into a virtual file without state
-    pub fn compile_no_state(&self, _options: &CompileOptions) -> (String, VFile) {
+    pub fn compile_no_state(&self, _options: &CompileOptions) -> VFile {
         let json = serde_json::json!({
             "replace": self.replace,
             "values": self.values.iter().map(TagValue::compile).collect::<Vec<_>>()
         });
-        let type_str = self.r#type.to_string();
-        let vfile = VFile::Text(serde_json::to_string(&json).expect("Failed to serialize tag"));
 
-        (type_str, vfile)
+        VFile::Text(serde_json::to_string(&json).expect("Failed to serialize tag"))
     }
 
     /// Compile the tag into a virtual file.
-    pub fn compile(&self, options: &CompileOptions, _state: &MutCompilerState) -> (String, VFile) {
+    pub fn compile(&self, options: &CompileOptions, _state: &MutCompilerState) -> VFile {
         self.compile_no_state(options)
     }
 }
@@ -50,7 +71,7 @@ impl Tag {
 /// The type of a tag.
 #[allow(clippy::module_name_repetitions)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TagType {
     /// A tag for blocks.
     Blocks,
