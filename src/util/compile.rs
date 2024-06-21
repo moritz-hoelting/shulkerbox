@@ -15,7 +15,7 @@ use super::extendable_queue::ExtendableQueue;
 pub struct CompileOptions {
     /// Whether to compile in debug mode.
     pub(crate) debug: bool,
-
+    /// Pack format of the datapack.
     pub(crate) pack_formats: RangeInclusive<u8>,
 }
 
