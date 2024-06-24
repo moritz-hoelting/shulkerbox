@@ -7,7 +7,7 @@ use crate::{
 
 /// A tag for various types.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Tag {
     replace: bool,
     values: Vec<TagValue>,
@@ -98,7 +98,7 @@ impl ToString for TagType {
 /// The value of a tag.
 #[allow(clippy::module_name_repetitions)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TagValue {
     /// A simple value, either a resource location or an id of another tag.
     Simple(String),

@@ -7,7 +7,7 @@ use zip::ZipWriter;
 
 /// Folder representation in virtual file system
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct VFolder {
     folders: HashMap<String, VFolder>,
     files: HashMap<String, VFile>,
@@ -304,7 +304,7 @@ impl TryFrom<&Path> for VFolder {
 
 /// File representation in virtual file system
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VFile {
     /// Text file
     Text(String),

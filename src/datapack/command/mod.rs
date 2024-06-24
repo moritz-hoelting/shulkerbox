@@ -15,7 +15,7 @@ use crate::{
 
 /// Represents a command that can be included in a function.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Command {
     /// A command that is already formatted as a string.
     Raw(String),

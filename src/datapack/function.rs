@@ -13,7 +13,7 @@ use super::command::Command;
 
 /// Function that can be called by a command
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Default, Getters)]
+#[derive(Debug, Clone, Default, Getters, PartialEq, Eq, Hash)]
 pub struct Function {
     commands: Vec<Command>,
     /// Name of the function

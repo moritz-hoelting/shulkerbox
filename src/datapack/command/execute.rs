@@ -10,7 +10,7 @@ use crate::util::{
 
 #[allow(missing_docs)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Execute {
     Align(String, Box<Execute>),
     Anchored(String, Box<Execute>),
@@ -365,7 +365,7 @@ fn combine_conditions_commands(
 
 #[allow(missing_docs)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Condition {
     Atom(String),
     Not(Box<Condition>),

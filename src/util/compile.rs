@@ -1,10 +1,10 @@
 //! Compile options for the compiler.
 
-use std::{ops::RangeInclusive, sync::Mutex};
+use std::sync::Mutex;
 
 use getset::Getters;
 
-use crate::{datapack::Function, prelude::Datapack};
+use crate::datapack::Function;
 
 use super::extendable_queue::ExtendableQueue;
 
@@ -15,33 +15,19 @@ use super::extendable_queue::ExtendableQueue;
 pub struct CompileOptions {
     /// Whether to compile in debug mode.
     pub(crate) debug: bool,
-    /// Pack format of the datapack.
-    pub(crate) pack_formats: RangeInclusive<u8>,
 }
 
 impl CompileOptions {
     /// Set whether to compile in debug mode.
     #[must_use]
     pub fn with_debug(self, debug: bool) -> Self {
-        Self { debug, ..self }
-    }
-
-    /// Set the pack format of the datapack.
-    #[must_use]
-    pub fn with_pack_formats(self, pack_formats: RangeInclusive<u8>) -> Self {
-        Self {
-            pack_formats,
-            ..self
-        }
+        Self { debug }
     }
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
-        Self {
-            debug: true,
-            pack_formats: Datapack::LATEST_FORMAT..=Datapack::LATEST_FORMAT,
-        }
+        Self { debug: true }
     }
 }
 

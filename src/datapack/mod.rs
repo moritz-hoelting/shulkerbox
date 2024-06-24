@@ -17,7 +17,7 @@ use crate::{
 
 /// A Minecraft datapack.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datapack {
     // TODO: Support filter and overlays
     description: String,
@@ -107,17 +107,9 @@ impl Datapack {
     }
 
     /// Compile the pack into a virtual folder.
-    ///
-    /// The pack format in the compile options will be overridden by the pack format of the datapack.
     #[must_use]
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn compile(&self, options: &CompileOptions) -> VFolder {
-        let pack_formats = self
-            .supported_formats
-            .clone()
-            .unwrap_or(self.pack_format..=self.pack_format);
-        let options = &options.clone().with_pack_formats(pack_formats);
-
         tracing::debug!("Compiling datapack: {:?}", self);
 
         let compiler_state = Mutex::new(CompilerState::default());
