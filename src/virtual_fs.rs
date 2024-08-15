@@ -284,11 +284,9 @@ impl TryFrom<&Path> for VFolder {
             if let Some(name) = name {
                 if path.is_dir() {
                     root_vfolder.add_existing_folder(&name, Self::try_from(path.as_path())?);
-                } else if path.is_file() {
+                } else {
                     let file = VFile::try_from(path.as_path())?;
                     root_vfolder.add_file(&name, file);
-                } else {
-                    unreachable!("Path is neither file nor directory");
                 }
             } else {
                 return Err(io::Error::new(
@@ -353,6 +351,8 @@ mod tests {
         let v_file_2 = VFile::from("baz");
         v_folder.add_file("bar/baz.txt", v_file_2);
 
+        v_folder.add_file("bar/foo.bin", VFile::Binary(vec![1, 2, 3, 4]));
+
         assert_eq!(v_folder.get_files().len(), 1);
         assert_eq!(v_folder.get_folders().len(), 1);
         assert!(v_folder.get_file("bar/baz.txt").is_some());
@@ -361,5 +361,79 @@ mod tests {
             .expect("folder not found")
             .get_file("baz.txt")
             .is_some());
+
+        let temp = tempfile::tempdir().expect("failed to create temp dir");
+        v_folder.place(temp.path()).expect("failed to place folder");
+
+        assert_eq!(
+            fs::read_to_string(temp.path().join("foo.txt")).expect("failed to read file"),
+            "foo"
+        );
+        assert_eq!(
+            fs::read_to_string(temp.path().join("bar/baz.txt")).expect("failed to read file"),
+            "baz"
+        );
+        assert_eq!(
+            fs::read(temp.path().join("bar/foo.bin")).expect("failed to read file"),
+            vec![1, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn test_flatten() {
+        let mut v_folder = VFolder::new();
+        v_folder.add_file("a.txt", VFile::from("a"));
+        v_folder.add_file("a/b.txt", VFile::from("b"));
+        v_folder.add_file("a/b/c.txt", VFile::from("c"));
+
+        let flattened = v_folder.flatten();
+        assert_eq!(flattened.len(), 3);
+        assert!(flattened.iter().any(|(path, _)| path == "a.txt"));
+        assert!(flattened.iter().any(|(path, _)| path == "a/b.txt"));
+        assert!(flattened.iter().any(|(path, _)| path == "a/b/c.txt"));
+    }
+
+    #[test]
+    fn test_merge() {
+        let mut first = VFolder::new();
+        first.add_file("a.txt", VFile::from("a"));
+        first.add_file("a/b.txt", VFile::from("b"));
+
+        let mut second = VFolder::new();
+        second.add_file("a.txt", VFile::from("a2"));
+        second.add_file("c.txt", VFile::from("c"));
+        second.add_file("c/d.txt", VFile::from("d"));
+        second.add_file("a/e.txt", VFile::from("e"));
+
+        let replaced = first.merge(second);
+        assert_eq!(replaced.len(), 1);
+
+        assert!(first.get_file("a.txt").is_some());
+        assert!(first.get_file("a/b.txt").is_some());
+        assert!(first.get_file("c.txt").is_some());
+        assert!(first.get_file("c/d.txt").is_some());
+        assert!(first.get_file("a/e.txt").is_some());
+    }
+
+    #[test]
+    fn test_try_from() {
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        fs::create_dir_all(temp_dir.path().join("bar")).expect("failed to create dir");
+        fs::write(temp_dir.path().join("foo.txt"), "foo").expect("failed to write file");
+        fs::write(temp_dir.path().join("bar/baz.txt"), "baz").expect("failed to write file");
+
+        let v_folder = VFolder::try_from(temp_dir.path()).expect("failed to convert");
+        assert_eq!(v_folder.get_files().len(), 1);
+        assert_eq!(v_folder.get_folders().len(), 1);
+        if let VFile::Binary(data) = v_folder.get_file("foo.txt").expect("file not found") {
+            assert_eq!(data, b"foo");
+        } else {
+            panic!("File is not binary");
+        }
+        if let VFile::Binary(data) = v_folder.get_file("bar/baz.txt").expect("file not found") {
+            assert_eq!(data, b"baz");
+        } else {
+            panic!("File is not binary");
+        }
     }
 }

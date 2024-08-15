@@ -74,3 +74,33 @@ impl Function {
         self.commands.iter().all(|c| c.validate(pack_formats))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::util::compile::CompilerState;
+    use std::sync::Mutex;
+
+    #[test]
+    fn test_function() {
+        let mut function = Function::new("namespace", "name");
+
+        assert_eq!(function.get_commands().len(), 0);
+
+        function.add_command(Command::raw("say Hello, world!"));
+
+        assert_eq!(function.get_commands().len(), 1);
+
+        let options = &CompileOptions::default();
+        let global_state = &Mutex::new(CompilerState::default());
+        let function_state = &FunctionCompilerState::default();
+
+        let compiled = function.compile(options, global_state, function_state);
+
+        assert!(matches!(
+            compiled,
+            VFile::Text(content) if content == "say Hello, world!"
+        ));
+    }
+}

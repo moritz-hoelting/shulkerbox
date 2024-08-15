@@ -40,7 +40,7 @@ pub struct CompilerState {}
 pub type MutCompilerState = Mutex<CompilerState>;
 
 /// State of the compiler for each function that can change during compilation.
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, Default)]
 pub struct FunctionCompilerState {
     /// Next unique identifier.
     uid_counter: Mutex<usize>,

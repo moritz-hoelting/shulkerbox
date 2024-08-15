@@ -109,13 +109,7 @@ impl Namespace {
         // compile tags
         for ((path, tag_type), tag) in &self.tags {
             let vfile = tag.compile(options, state);
-            root_folder.add_file(
-                &format!(
-                    "tags/{tag_type}/{path}.json",
-                    tag_type = tag_type.to_string()
-                ),
-                vfile,
-            );
+            root_folder.add_file(&format!("tags/{tag_type}/{path}.json"), vfile);
         }
 
         root_folder
@@ -127,5 +121,25 @@ impl Namespace {
         self.functions
             .values()
             .all(|function| function.validate(pack_formats))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_namespace() {
+        let mut namespace = Namespace::new("foo");
+
+        assert_eq!(namespace.get_name(), "foo");
+        assert_eq!(namespace.get_functions().len(), 0);
+        assert_eq!(namespace.get_tags().len(), 0);
+
+        let _ = namespace.function_mut("bar");
+        assert_eq!(namespace.get_functions().len(), 1);
+
+        assert!(namespace.function("bar").is_some());
+        assert!(namespace.function("baz").is_none());
     }
 }

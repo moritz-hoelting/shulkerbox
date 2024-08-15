@@ -1,5 +1,7 @@
 //! A tag for various types.
 
+use std::fmt::Display;
+
 use crate::{
     util::compile::{CompileOptions, MutCompilerState},
     virtual_fs::VFile,
@@ -81,9 +83,9 @@ pub enum TagType {
     /// `Others(<registry path>)` => `data/<namespace>/tags/<registry path>`
     Others(String),
 }
-impl ToString for TagType {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for TagType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
             Self::Blocks => "block".to_string(),
             Self::Fluids => "fluid".to_string(),
             Self::Items => "item".to_string(),
@@ -91,7 +93,8 @@ impl ToString for TagType {
             Self::GameEvents => "game_event".to_string(),
             Self::Functions => "function".to_string(),
             Self::Others(path) => path.to_string(),
-        }
+        };
+        f.write_str(&str)
     }
 }
 
@@ -122,11 +125,53 @@ impl TagValue {
         match self {
             Self::Simple(value) => serde_json::Value::String(value.clone()),
             Self::Advanced { id, required } => {
-                let mut map = serde_json::Map::new();
-                map.insert("id".to_string(), serde_json::Value::String(id.clone()));
-                map.insert("required".to_string(), serde_json::Value::Bool(*required));
-                serde_json::Value::Object(map)
+                serde_json::json!({
+                    "id": id.clone(),
+                    "required": *required
+                })
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tag() {
+        let mut tag = Tag::new(false);
+        assert!(!tag.get_replace());
+
+        tag.set_replace(true);
+        assert!(tag.get_replace());
+
+        tag.add_value(TagValue::from("foo:bar"));
+        tag.add_value(TagValue::Advanced {
+            id: "bar:baz".to_string(),
+            required: true,
+        });
+
+        assert_eq!(tag.get_values().len(), 2);
+
+        let compiled = tag.compile(&CompileOptions::default(), &MutCompilerState::default());
+
+        if let VFile::Text(text) = compiled {
+            let deserialized = serde_json::from_str::<serde_json::Value>(&text)
+                .expect("Failed to deserialize tag");
+            assert_eq!(
+                deserialized,
+                serde_json::json!({
+                "replace": true,
+                "values": [
+                        "foo:bar",
+                        {
+                            "id": "bar:baz",
+                            "required": true
+                        }
+                    ]
+                    })
+            );
         }
     }
 }

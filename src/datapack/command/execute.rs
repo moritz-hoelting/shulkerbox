@@ -421,7 +421,7 @@ impl Condition {
     /// Will fail if the condition contains an `Or` variant. Use `compile` instead.
     fn str_cond(&self) -> Option<String> {
         match self {
-            Self::Atom(s) => Some("if ".to_string() + &s),
+            Self::Atom(s) => Some("if ".to_string() + s),
             Self::Not(n) => match *(*n).clone() {
                 Self::Atom(s) => Some("unless ".to_string() + &s),
                 _ => None,
@@ -491,7 +491,7 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     #[test]
     fn test_condition() {
-        let c1 = Condition::Atom("foo".to_string());
+        let c1 = Condition::from("foo");
         let c2 = Condition::Atom("bar".to_string());
         let c3 = Condition::Atom("baz".to_string());
 
@@ -573,5 +573,57 @@ mod tests {
                 c1.clone() & (!c2.clone() & !c4.clone())
             ]
         );
+    }
+
+    #[test]
+    fn test_combine_conditions_commands() {
+        let conditions = vec!["a", "b", "c"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let commands = &[(true, "1".to_string()), (false, "2".to_string())];
+
+        let combined = combine_conditions_commands(conditions, commands);
+        assert_eq!(
+            combined,
+            vec![
+                (true, "a 1".to_string()),
+                (false, "2".to_string()),
+                (true, "b 1".to_string()),
+                (false, "2".to_string()),
+                (true, "c 1".to_string()),
+                (false, "2".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile() {
+        let compiled = Execute::As(
+            "@ְa".to_string(),
+            Box::new(Execute::If(
+                "block ~ ~-1 ~ minecraft:stone".into(),
+                Box::new(Execute::Run(Box::new("say hi".into()))),
+                None,
+            )),
+        )
+        .compile(
+            &CompileOptions::default(),
+            &MutCompilerState::default(),
+            &FunctionCompilerState::default(),
+        );
+
+        assert_eq!(
+            compiled,
+            vec!["execute as @ְa if block ~ ~-1 ~ minecraft:stone run say hi".to_string()]
+        );
+
+        let direct = Execute::Run(Box::new("say direct".into())).compile(
+            &CompileOptions::default(),
+            &MutCompilerState::default(),
+            &FunctionCompilerState::default(),
+        );
+
+        assert_eq!(direct, vec!["say direct".to_string()]);
     }
 }

@@ -8,7 +8,7 @@
     rustdoc::broken_intra_doc_links,
     clippy::missing_errors_doc
 )]
-#![warn(clippy::all, clippy::pedantic)]
+#![warn(clippy::all, clippy::pedantic, clippy::perf)]
 #![allow(clippy::missing_panics_doc, clippy::missing_const_for_fn)]
 
 pub mod datapack;

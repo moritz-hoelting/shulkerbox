@@ -38,7 +38,7 @@ impl<T> ExtendableQueue<T> {
 
     /// Get the queue.
     #[must_use]
-    pub fn get(&self) -> &Arc<RwLock<VecDeque<T>>> {
+    pub fn get_arc(&self) -> &Arc<RwLock<VecDeque<T>>> {
         &self.queue
     }
 
@@ -83,5 +83,41 @@ impl<T> Iterator for ExtendableQueue<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.queue.write().unwrap().pop_front()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_queue() {
+        let mut queue = ExtendableQueue::default();
+        queue.push(1);
+        queue.push(2);
+        queue.push(3);
+
+        assert_eq!(queue.len(), 3);
+
+        let mut count = 0;
+
+        while let Some(el) = queue.next() {
+            count += el;
+
+            if el == 1 {
+                queue.extend(vec![4, 5, 6]);
+            }
+        }
+
+        assert_eq!(count, 21);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn test_from() {
+        let base = vec![1, 2, 3, 4];
+        let queue = ExtendableQueue::from(base.clone());
+
+        assert!(queue.into_iter().zip(base).all(|(a, b)| a == b));
     }
 }

@@ -158,3 +158,56 @@ fn generate_mcmeta(dp: &Datapack, _options: &CompileOptions, _state: &MutCompile
 
     VFile::Text(content.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_datapack() {
+        let template_dir = tempfile::tempdir().expect("error creating tempdir");
+
+        let mut dp = Datapack::new(Datapack::LATEST_FORMAT)
+            .with_description("My datapack")
+            .with_template_folder(template_dir.path())
+            .expect("error reading template folder");
+
+        assert_eq!(dp.namespaces.len(), 0);
+
+        let _ = dp.namespace_mut("foo");
+        assert_eq!(dp.namespaces.len(), 1);
+    }
+
+    #[test]
+    fn test_generate_mcmeta() {
+        let dp = &Datapack::new(Datapack::LATEST_FORMAT).with_description("foo");
+        let state = Mutex::new(CompilerState::default());
+        let mcmeta = generate_mcmeta(dp, &CompileOptions::default(), &state);
+
+        let json = if let VFile::Text(text) = mcmeta {
+            serde_json::from_str::<serde_json::Value>(&text).unwrap()
+        } else {
+            panic!("mcmeta should be text not binary")
+        };
+
+        let pack = json
+            .as_object()
+            .expect("mcmeta is not object")
+            .get("pack")
+            .expect("no pack value")
+            .as_object()
+            .expect("mcmeta pack is not object");
+        assert_eq!(
+            pack.get("description")
+                .expect("no key pack.description")
+                .as_str(),
+            Some("foo")
+        );
+        assert_eq!(
+            pack.get("pack_format")
+                .expect("no key pack.pack_format")
+                .as_u64(),
+            Some(u64::from(Datapack::LATEST_FORMAT))
+        );
+    }
+}

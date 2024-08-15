@@ -56,6 +56,7 @@ impl Command {
     #[must_use]
     fn get_count(&self, options: &CompileOptions) -> usize {
         match self {
+            // TODO: change comment to compile to `1`, make sure nothing breaks
             Self::Comment(_) => 0,
             Self::Debug(_) => usize::from(options.debug),
             Self::Raw(cmd) => cmd.split('\n').count(),
@@ -265,4 +266,61 @@ fn validate_raw_cmd(cmd: &str, pack_formats: &RangeInclusive<u8>) -> bool {
             start_cmd <= start_pack && end_cmd >= end_pack
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use crate::util::compile::CompilerState;
+
+    use super::*;
+
+    #[test]
+    fn test_raw() {
+        let command_a = Command::Raw("say Hello, world!".to_string());
+        let command_b = Command::raw("say foo bar");
+
+        let options = &CompileOptions::default();
+        let global_state = &Mutex::new(CompilerState::default());
+        let function_state = &FunctionCompilerState::default();
+
+        assert_eq!(
+            command_a.compile(options, global_state, function_state),
+            vec!["say Hello, world!".to_string()]
+        );
+        assert_eq!(command_a.get_count(options), 1);
+        assert_eq!(
+            command_b.compile(options, global_state, function_state),
+            vec!["say foo bar".to_string()]
+        );
+        assert_eq!(command_b.get_count(options), 1);
+    }
+
+    #[test]
+    fn test_comment() {
+        let comment = Command::Comment("this is a comment".to_string());
+
+        let options = &CompileOptions::default();
+        let global_state = &Mutex::new(CompilerState::default());
+        let function_state = &FunctionCompilerState::default();
+
+        assert_eq!(
+            comment.compile(options, global_state, function_state),
+            vec!["#this is a comment".to_string()]
+        );
+        assert_eq!(comment.get_count(options), 0);
+    }
+
+    #[test]
+    fn test_validate() {
+        let tag = Command::raw("tag @s add foo");
+
+        assert!(tag.validate(&(6..=9)));
+        assert!(!tag.validate(&(2..=5)));
+
+        let kill = Command::raw("kill @p");
+
+        assert!(kill.validate(&(2..=40)));
+    }
 }
