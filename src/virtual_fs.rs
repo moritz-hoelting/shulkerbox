@@ -1,6 +1,6 @@
 //! Virtual file system for creating and manipulating files and folders in memory.
 
-use std::{collections::HashMap, fs, io, path::Path};
+use std::{collections::HashMap, path::Path};
 
 #[cfg(feature = "zip")]
 use zip::ZipWriter;
@@ -131,7 +131,10 @@ impl VFolder {
     ///
     /// # Errors
     /// - If the folder cannot be written
-    pub fn place(&self, path: &Path) -> io::Result<()> {
+    #[cfg(feature = "fs_access")]
+    pub fn place(&self, path: &Path) -> std::io::Result<()> {
+        use std::fs;
+
         fs::create_dir_all(path)?;
         // place each subfolder recursively
         for (name, folder) in &self.folders {
@@ -151,13 +154,13 @@ impl VFolder {
         Ok(())
     }
 
-    #[cfg(feature = "zip")]
     /// Zip the folder and its contents into a zip archive.
     ///
     /// # Errors
     /// - If the zip archive cannot be written
-    pub fn zip(&self, path: &Path) -> io::Result<()> {
-        use io::Write;
+    #[cfg(all(feature = "fs_access", feature = "zip"))]
+    pub fn zip(&self, path: &Path) -> std::io::Result<()> {
+        use std::{fs, io::Write};
 
         // open target file
         let file = fs::File::create(path)?;
@@ -184,16 +187,16 @@ impl VFolder {
         Ok(())
     }
 
-    #[cfg(feature = "zip")]
     /// Zip the folder and its contents into a zip archive with the given comment.
     ///
     /// # Errors
     /// - If the zip archive cannot be written
-    pub fn zip_with_comment<S>(&self, path: &Path, comment: S) -> io::Result<()>
+    #[cfg(all(feature = "fs_access", feature = "zip"))]
+    pub fn zip_with_comment<S>(&self, path: &Path, comment: S) -> std::io::Result<()>
     where
         S: Into<String>,
     {
-        use io::Write;
+        use std::{fs, io::Write};
 
         // open target file
         let file = fs::File::create(path)?;
@@ -271,10 +274,13 @@ impl VFolder {
     }
 }
 
+#[cfg(feature = "fs_access")]
 impl TryFrom<&Path> for VFolder {
-    type Error = io::Error;
+    type Error = std::io::Error;
 
     fn try_from(value: &Path) -> Result<Self, Self::Error> {
+        use std::{fs, io};
+
         let mut root_vfolder = Self::new();
         let fs_root_folder = fs::read_dir(value)?;
         for dir_entry in fs_root_folder {
@@ -320,23 +326,55 @@ impl From<&str> for VFile {
         Self::Text(value.to_string())
     }
 }
+impl From<Vec<u8>> for VFile {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Binary(value)
+    }
+}
+impl From<&[u8]> for VFile {
+    fn from(value: &[u8]) -> Self {
+        Self::Binary(value.to_vec())
+    }
+}
+
+#[cfg(feature = "fs_access")]
+impl TryFrom<&Path> for VFile {
+    type Error = std::io::Error;
+
+    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+        let data = std::fs::read(value)?;
+        Ok(Self::Binary(data))
+    }
+}
 impl Default for VFile {
     fn default() -> Self {
         Self::Text(String::new())
     }
 }
 
-impl TryFrom<&Path> for VFile {
-    type Error = io::Error;
-
-    fn try_from(value: &Path) -> Result<Self, Self::Error> {
-        let data = fs::read(value)?;
-        Ok(Self::Binary(data))
+impl VFile {
+    /// Get the text content of the file.
+    #[must_use]
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) => Some(text),
+            Self::Binary(_) => None,
+        }
+    }
+    /// Get the binary content of the file.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Binary(data) => data,
+            Self::Text(text) => text.as_bytes(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]

@@ -12,7 +12,8 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["zip"]
+default = ["fs_access", "zip"]
+fs_access = []
 serde = ["dep:serde"]
 zip = ["dep:zip"]
 

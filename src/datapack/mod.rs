@@ -28,7 +28,7 @@ pub struct Datapack {
 }
 
 impl Datapack {
-    pub(crate) const LATEST_FORMAT: u8 = 48;
+    pub const LATEST_FORMAT: u8 = 48;
 
     /// Create a new Minecraft datapack.
     #[must_use]
