@@ -75,8 +75,7 @@ impl Execute {
             | Self::On(arg, next)
             | Self::Positioned(arg, next)
             | Self::Rotated(arg, next)
-            | Self::Store(arg, next)
-            | Self::Summon(arg, next) => next.compile_internal(
+            | Self::Store(arg, next) => next.compile_internal(
                 format!("{prefix}{op} {arg} ", op = self.variant_name()),
                 require_grouping,
                 options,
@@ -95,6 +94,13 @@ impl Execute {
                 then.as_ref(),
                 el.as_deref(),
                 &prefix,
+                options,
+                global_state,
+                function_state,
+            ),
+            Self::Summon(arg, next) => next.compile_internal(
+                format!("{prefix}{op} {arg} ", op = self.variant_name()),
+                true,
                 options,
                 global_state,
                 function_state,
