@@ -44,12 +44,11 @@ impl VFolder {
             .split_once('/')
             .map_or((path, None), |(h, t)| (h, (!t.is_empty()).then_some(t)));
         if let Some(tail) = tail {
-            // if the folder already exists, add the subfolder to it
             if let Some(subfolder) = self.get_folder_mut(head) {
-                subfolder.add_folder(tail);
+                subfolder.add_existing_folder(tail, folder);
             } else {
                 let mut new_folder = Self::new();
-                new_folder.add_folder(tail);
+                new_folder.add_existing_folder(tail, folder);
                 self.add_existing_folder(head, new_folder);
             }
         } else {
