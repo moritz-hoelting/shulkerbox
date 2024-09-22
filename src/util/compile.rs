@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use getset::Getters;
 
-use crate::datapack::Function;
+use crate::datapack::{Datapack, Function};
 
 use super::extendable_queue::ExtendableQueue;
 
@@ -13,6 +13,8 @@ use super::extendable_queue::ExtendableQueue;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
+    /// The pack format of the target datapack.
+    pub(crate) pack_format: u8,
     /// Whether to compile in debug mode.
     pub(crate) debug: bool,
 }
@@ -21,13 +23,16 @@ impl CompileOptions {
     /// Set whether to compile in debug mode.
     #[must_use]
     pub fn with_debug(self, debug: bool) -> Self {
-        Self { debug }
+        Self { debug, ..self }
     }
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
-        Self { debug: true }
+        Self {
+            pack_format: Datapack::LATEST_FORMAT,
+            debug: true,
+        }
     }
 }
 

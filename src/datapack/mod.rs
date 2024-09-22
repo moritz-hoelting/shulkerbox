@@ -90,14 +90,14 @@ impl Datapack {
     /// Add a function to the tick function list.
     pub fn add_tick(&mut self, function: &str) {
         self.namespace_mut("minecraft")
-            .tag_mut("tick", tag::TagType::Functions)
+            .tag_mut("tick", tag::TagType::Function)
             .add_value(tag::TagValue::Simple(function.to_string()));
     }
 
     /// Add a function to the load function list.
     pub fn add_load(&mut self, function: &str) {
         self.namespace_mut("minecraft")
-            .tag_mut("load", tag::TagType::Functions)
+            .tag_mut("load", tag::TagType::Function)
             .add_value(tag::TagValue::Simple(function.to_string()));
     }
 
@@ -111,17 +111,21 @@ impl Datapack {
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn compile(&self, options: &CompileOptions) -> VFolder {
         tracing::debug!("Compiling datapack: {:?}", self);
+        let options = CompileOptions {
+            pack_format: self.pack_format,
+            ..options.clone()
+        };
 
         let compiler_state = Mutex::new(CompilerState::default());
 
         let mut root_folder = self.custom_files.clone();
-        let mcmeta = generate_mcmeta(self, options, &compiler_state);
+        let mcmeta = generate_mcmeta(self, &options, &compiler_state);
         root_folder.add_file("pack.mcmeta", mcmeta);
         let mut data_folder = VFolder::new();
 
         // Compile namespaces
         for (name, namespace) in &self.namespaces {
-            let namespace_folder = namespace.compile(options, &compiler_state);
+            let namespace_folder = namespace.compile(&options, &compiler_state);
             data_folder.add_existing_folder(name, namespace_folder);
         }
 

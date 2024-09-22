@@ -3,7 +3,7 @@
 use crate::{
     util::{
         compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
-        ExtendableQueue,
+        pack_format, ExtendableQueue,
     },
     virtual_fs::VFolder,
 };
@@ -101,7 +101,10 @@ impl Namespace {
         while let Some((path, function)) = functions.next() {
             let function_state = FunctionCompilerState::new(&path, &self.name, functions.clone());
             root_folder.add_file(
-                &format!("function/{path}.mcfunction"),
+                &format!(
+                    "{directory_name}/{path}.mcfunction",
+                    directory_name = pack_format::function_directory_name(options.pack_format)
+                ),
                 function.compile(options, state, &function_state),
             );
         }
@@ -109,7 +112,13 @@ impl Namespace {
         // compile tags
         for ((path, tag_type), tag) in &self.tags {
             let vfile = tag.compile(options, state);
-            root_folder.add_file(&format!("tags/{tag_type}/{path}.json"), vfile);
+            root_folder.add_file(
+                &format!(
+                    "tags/{tag_directory}/{path}.json",
+                    tag_directory = tag_type.get_directory_name(options.pack_format)
+                ),
+                vfile,
+            );
         }
 
         root_folder

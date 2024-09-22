@@ -68,31 +68,65 @@ impl Tag {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TagType {
     /// A tag for blocks.
-    Blocks,
+    Block,
     /// A tag for fluids.
-    Fluids,
+    Fluid,
     /// A tag for items.
-    Items,
+    Item,
     /// A tag for entities.
-    Entities,
+    Entity,
     /// A tag for game events.
-    GameEvents,
+    GameEvent,
     /// A tag for functions.
-    Functions,
-    /// A custom tag
-    /// `Others(<registry path>)` => `data/<namespace>/tags/<registry path>`
-    Others(String),
+    Function,
+    /// A custom tag type.
+    /// `Other(<registry path>)` => `data/<namespace>/tags/<registry path>`
+    Other(String),
 }
+
+impl TagType {
+    #[must_use]
+    pub fn get_directory_name(&self, pack_format: u8) -> &str {
+        if pack_format < 43 {
+            match self {
+                Self::Block => "blocks",
+                Self::Fluid => "fluids",
+                Self::Item => "items",
+                Self::Entity => "entity_types",
+                Self::GameEvent => "game_events",
+                Self::Function => "functions",
+                Self::Other(path) => path,
+            }
+        } else {
+            match self {
+                Self::Block => "block",
+                Self::Fluid => "fluid",
+                Self::Item => "item",
+                Self::Entity => "entity_type",
+                Self::GameEvent => "game_event",
+                Self::Function => {
+                    if pack_format < 45 {
+                        "functions"
+                    } else {
+                        "function"
+                    }
+                }
+                Self::Other(path) => path,
+            }
+        }
+    }
+}
+
 impl Display for TagType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match self {
-            Self::Blocks => "block".to_string(),
-            Self::Fluids => "fluid".to_string(),
-            Self::Items => "item".to_string(),
-            Self::Entities => "entity_type".to_string(),
-            Self::GameEvents => "game_event".to_string(),
-            Self::Functions => "function".to_string(),
-            Self::Others(path) => path.to_string(),
+            Self::Block => "block".to_string(),
+            Self::Fluid => "fluid".to_string(),
+            Self::Item => "item".to_string(),
+            Self::Entity => "entity_type".to_string(),
+            Self::GameEvent => "game_event".to_string(),
+            Self::Function => "function".to_string(),
+            Self::Other(path) => path.to_string(),
         };
         f.write_str(&str)
     }
