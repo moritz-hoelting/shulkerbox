@@ -131,13 +131,17 @@ impl VFolder {
     /// # Errors
     /// - If the folder cannot be written
     #[cfg(feature = "fs_access")]
-    pub fn place(&self, path: &Path) -> std::io::Result<()> {
+    pub fn place<P>(&self, path: P) -> std::io::Result<()>
+    where
+        P: AsRef<Path>,
+    {
         use std::fs;
+        let path = path.as_ref();
 
         fs::create_dir_all(path)?;
         // place each subfolder recursively
         for (name, folder) in &self.folders {
-            folder.place(&path.join(name))?;
+            folder.place(path.join(name))?;
         }
         // create each file
         for (name, file) in &self.files {
@@ -158,7 +162,10 @@ impl VFolder {
     /// # Errors
     /// - If the zip archive cannot be written
     #[cfg(all(feature = "fs_access", feature = "zip"))]
-    pub fn zip(&self, path: &Path) -> std::io::Result<()> {
+    pub fn zip<P>(&self, path: P) -> std::io::Result<()>
+    where
+        P: AsRef<Path>,
+    {
         use std::{fs, io::Write};
 
         // open target file
@@ -191,8 +198,9 @@ impl VFolder {
     /// # Errors
     /// - If the zip archive cannot be written
     #[cfg(all(feature = "fs_access", feature = "zip"))]
-    pub fn zip_with_comment<S>(&self, path: &Path, comment: S) -> std::io::Result<()>
+    pub fn zip_with_comment<P, S>(&self, path: P, comment: S) -> std::io::Result<()>
     where
+        P: AsRef<Path>,
         S: Into<String>,
     {
         use std::{fs, io::Write};
@@ -313,6 +321,46 @@ pub enum VFile {
     Text(String),
     /// Binary file
     Binary(Vec<u8>),
+}
+
+impl std::io::Read for VFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.as_bytes().read(buf)
+    }
+
+    fn read_to_string(&mut self, buf: &mut String) -> std::io::Result<usize> {
+        match self {
+            Self::Text(text) => {
+                buf.push_str(text);
+                Ok(text.len())
+            }
+            Self::Binary(data) => {
+                let text =
+                    std::str::from_utf8(data).map_err(|_| std::io::ErrorKind::InvalidData)?;
+                buf.push_str(text);
+                Ok(text.len())
+            }
+        }
+    }
+}
+
+impl std::io::Write for VFile {
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Text(text) => {
+                text.push_str(&String::from_utf8_lossy(buf));
+                Ok(buf.len())
+            }
+            Self::Binary(data) => {
+                data.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+        }
+    }
 }
 
 impl From<String> for VFile {

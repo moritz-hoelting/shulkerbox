@@ -8,6 +8,7 @@ use crate::util::{
     ExtendableQueue,
 };
 
+/// Execute command with all its variants.
 #[allow(missing_docs)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -369,6 +370,7 @@ fn combine_conditions_commands(
         .collect()
 }
 
+/// Condition for the execute command.
 #[allow(missing_docs)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

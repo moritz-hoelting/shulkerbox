@@ -1,6 +1,10 @@
 name: Cargo build & test
 on:
     push:
+        branches: 
+            - main
+            - development
+            - 'releases/**'
     pull_request:
 
 env:
