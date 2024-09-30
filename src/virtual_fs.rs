@@ -1,6 +1,6 @@
 //! Virtual file system for creating and manipulating files and folders in memory.
 
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 #[cfg(feature = "zip")]
 use zip::ZipWriter;
@@ -133,7 +133,7 @@ impl VFolder {
     #[cfg(feature = "fs_access")]
     pub fn place<P>(&self, path: P) -> std::io::Result<()>
     where
-        P: AsRef<Path>,
+        P: AsRef<std::path::Path>,
     {
         use std::fs;
         let path = path.as_ref();
@@ -164,7 +164,7 @@ impl VFolder {
     #[cfg(all(feature = "fs_access", feature = "zip"))]
     pub fn zip<P>(&self, path: P) -> std::io::Result<()>
     where
-        P: AsRef<Path>,
+        P: AsRef<std::path::Path>,
     {
         use std::{fs, io::Write};
 
@@ -200,7 +200,7 @@ impl VFolder {
     #[cfg(all(feature = "fs_access", feature = "zip"))]
     pub fn zip_with_comment<P, S>(&self, path: P, comment: S) -> std::io::Result<()>
     where
-        P: AsRef<Path>,
+        P: AsRef<std::path::Path>,
         S: Into<String>,
     {
         use std::{fs, io::Write};
@@ -282,10 +282,10 @@ impl VFolder {
 }
 
 #[cfg(feature = "fs_access")]
-impl TryFrom<&Path> for VFolder {
+impl TryFrom<&std::path::Path> for VFolder {
     type Error = std::io::Error;
 
-    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+    fn try_from(value: &std::path::Path) -> Result<Self, Self::Error> {
         use std::{fs, io};
 
         let mut root_vfolder = Self::new();
@@ -385,10 +385,10 @@ impl From<&[u8]> for VFile {
 }
 
 #[cfg(feature = "fs_access")]
-impl TryFrom<&Path> for VFile {
+impl TryFrom<&std::path::Path> for VFile {
     type Error = std::io::Error;
 
-    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+    fn try_from(value: &std::path::Path) -> Result<Self, Self::Error> {
         let data = std::fs::read(value)?;
         Ok(Self::Binary(data))
     }

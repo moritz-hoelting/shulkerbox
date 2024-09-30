@@ -8,7 +8,7 @@ pub use command::{Command, Condition, Execute};
 pub use function::Function;
 pub use namespace::Namespace;
 
-use std::{collections::HashMap, ops::RangeInclusive, path::Path, sync::Mutex};
+use std::{collections::HashMap, ops::RangeInclusive, sync::Mutex};
 
 use crate::{
     util::compile::{CompileOptions, CompilerState, MutCompilerState},
@@ -64,14 +64,23 @@ impl Datapack {
     ///
     /// # Errors
     /// - If loading the directory fails
-    pub fn with_template_folder(self, path: &Path) -> std::io::Result<Self> {
-        let mut template = VFolder::try_from(path)?;
-        template.merge(self.custom_files);
+    #[cfg(feature = "fs_access")]
+    pub fn with_template_folder<P>(self, path: P) -> std::io::Result<Self>
+    where
+        P: AsRef<std::path::Path>,
+    {
+        let template = VFolder::try_from(path.as_ref())?;
+        Ok(self.with_template_vfolder(template))
+    }
 
-        Ok(Self {
+    /// Set the custom files of the datapack.
+    #[must_use]
+    pub fn with_template_vfolder(self, mut template: VFolder) -> Self {
+        template.merge(self.custom_files);
+        Self {
             custom_files: template,
             ..self
-        })
+        }
     }
 
     /// Get a namespace by name.
