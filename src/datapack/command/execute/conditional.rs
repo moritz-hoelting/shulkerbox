@@ -1,219 +1,50 @@
-use std::ops::{BitAnd, BitOr, Not, RangeInclusive};
-
 use chksum_md5 as md5;
+use std::ops::{BitAnd, BitOr, Not};
 
-use super::Command;
-use crate::util::{
-    compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
-    ExtendableQueue,
+use crate::{
+    prelude::Command,
+    util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
 };
 
-/// Execute command with all its variants.
-#[allow(missing_docs)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Execute {
-    Align(String, Box<Execute>),
-    Anchored(String, Box<Execute>),
-    As(String, Box<Execute>),
-    At(String, Box<Execute>),
-    AsAt(String, Box<Execute>),
-    Facing(String, Box<Execute>),
-    In(String, Box<Execute>),
-    On(String, Box<Execute>),
-    Positioned(String, Box<Execute>),
-    Rotated(String, Box<Execute>),
-    Store(String, Box<Execute>),
-    Summon(String, Box<Execute>),
-    If(Condition, Box<Execute>, Option<Box<Execute>>),
-    Run(Box<Command>),
-    Runs(Vec<Command>),
-}
-
-impl Execute {
-    /// Compile the execute command into a list of strings.
-    pub fn compile(
-        &self,
-        options: &CompileOptions,
-        global_state: &MutCompilerState,
-        function_state: &FunctionCompilerState,
-    ) -> Vec<String> {
-        // Directly compile the command if it is a run command, skipping the execute part
-        // Otherwise, compile the execute command using internal function
-        if let Self::Run(cmd) = self {
-            cmd.compile(options, global_state, function_state)
-        } else {
-            self.compile_internal(
-                String::from("execute "),
-                false,
-                options,
-                global_state,
-                function_state,
-            )
-            .into_iter()
-            .map(|(_, cmd)| cmd)
-            .collect()
-        }
-    }
-
-    /// Compile the execute command into strings with the given prefix.
-    /// Each first tuple element is a boolean indicating if the prefix should be used for that command.
-    fn compile_internal(
-        &self,
-        prefix: String,
-        require_grouping: bool,
-        options: &CompileOptions,
-        global_state: &MutCompilerState,
-        function_state: &FunctionCompilerState,
-    ) -> Vec<(bool, String)> {
-        match self {
-            Self::Align(arg, next)
-            | Self::Anchored(arg, next)
-            | Self::As(arg, next)
-            | Self::At(arg, next)
-            | Self::Facing(arg, next)
-            | Self::In(arg, next)
-            | Self::On(arg, next)
-            | Self::Positioned(arg, next)
-            | Self::Rotated(arg, next)
-            | Self::Store(arg, next) => next.compile_internal(
-                format!("{prefix}{op} {arg} ", op = self.variant_name()),
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::AsAt(selector, next) => next.compile_internal(
-                format!("{prefix}as {selector} at @s "),
-                require_grouping,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::If(cond, then, el) => compile_if_cond(
-                cond,
-                then.as_ref(),
-                el.as_deref(),
-                &prefix,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Summon(arg, next) => next.compile_internal(
-                format!("{prefix}{op} {arg} ", op = self.variant_name()),
-                true,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Run(command) => match &**command {
-                Command::Execute(ex) => ex.compile_internal(
-                    prefix,
-                    require_grouping,
-                    options,
-                    global_state,
-                    function_state,
-                ),
-                command => command
-                    .compile(options, global_state, function_state)
-                    .into_iter()
-                    .map(|c| map_run_cmd(c, &prefix))
-                    .collect(),
-            },
-            Self::Runs(commands) if !require_grouping => commands
-                .iter()
-                .flat_map(|c| c.compile(options, global_state, function_state))
-                .map(|c| map_run_cmd(c, &prefix))
-                .collect(),
-            Self::Runs(commands) => Command::Group(commands.clone())
-                .compile(options, global_state, function_state)
-                .into_iter()
-                .map(|c| map_run_cmd(c, &prefix))
-                .collect(),
-        }
-    }
-
-    /// Get the count of the commands the execute command will compile into.
-    #[tracing::instrument(skip(options))]
-    pub(super) fn get_count(&self, options: &CompileOptions) -> usize {
-        let global_state = MutCompilerState::default();
-        let function_state =
-            FunctionCompilerState::new("[INTERNAL]", "[INTERNAL]", ExtendableQueue::default());
-
-        self.compile_internal(
-            String::new(),
-            false,
-            options,
-            &global_state,
-            &function_state,
-        )
-        .len()
-    }
-
-    /// Get the variant name of the execute command.
-    #[must_use]
-    pub fn variant_name(&self) -> &str {
-        match self {
-            Self::Align(..) => "align",
-            Self::Anchored(..) => "anchored",
-            Self::As(..) => "as",
-            Self::At(..) => "at",
-            Self::AsAt(..) => "as_at",
-            Self::Facing(..) => "facing",
-            Self::In(..) => "in",
-            Self::On(..) => "on",
-            Self::Positioned(..) => "positioned",
-            Self::Rotated(..) => "rotated",
-            Self::Store(..) => "store",
-            Self::Summon(..) => "summon",
-            Self::If(..) => "if",
-            Self::Run(..) => "run",
-            Self::Runs(..) => "runs",
-        }
-    }
-
-    /// Check whether the execute command is valid with the given pack format.
-    #[must_use]
-    pub fn validate(&self, pack_formats: &RangeInclusive<u8>) -> bool {
-        match self {
-            Self::Run(cmd) => cmd.validate(pack_formats),
-            Self::Runs(cmds) => cmds.iter().all(|cmd| cmd.validate(pack_formats)),
-            Self::Facing(_, next)
-            | Self::Store(_, next)
-            | Self::Positioned(_, next)
-            | Self::Rotated(_, next)
-            | Self::In(_, next)
-            | Self::As(_, next)
-            | Self::At(_, next)
-            | Self::AsAt(_, next)
-            | Self::Align(_, next)
-            | Self::Anchored(_, next) => pack_formats.start() >= &4 && next.validate(pack_formats),
-            Self::If(_, next, el) => {
-                pack_formats.start() >= &4
-                    && next.validate(pack_formats)
-                    && el.as_deref().map_or(true, |el| el.validate(pack_formats))
-            }
-            Self::Summon(_, next) | Self::On(_, next) => {
-                pack_formats.start() >= &12 && next.validate(pack_formats)
-            }
-        }
-    }
-}
-
-/// Combine command parts, respecting if the second part is a comment
-/// The first tuple element is a boolean indicating if the prefix should be used
-fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
-    if cmd.starts_with('#') || cmd.is_empty() || cmd.chars().all(char::is_whitespace) {
-        (false, cmd)
-    } else {
-        (true, prefix.to_string() + "run " + &cmd)
-    }
-}
+use super::Execute;
 
 /// Compile an if condition command.
 /// The first tuple element is a boolean indicating if the prefix should be used for that command.
 #[tracing::instrument(skip_all)]
-fn compile_if_cond(
+pub fn compile_if_cond(
+    cond: &Condition,
+    then: &Execute,
+    el: Option<&Execute>,
+    prefix: &str,
+    options: &CompileOptions,
+    global_state: &MutCompilerState,
+    function_state: &FunctionCompilerState,
+) -> Vec<(bool, String)> {
+    if options.pack_format < 20 {
+        compile_pre_20_format(
+            cond,
+            then,
+            el,
+            prefix,
+            options,
+            global_state,
+            function_state,
+        )
+    } else {
+        compile_since_20_format(
+            cond,
+            then,
+            el,
+            prefix,
+            options,
+            global_state,
+            function_state,
+        )
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn compile_pre_20_format(
     cond: &Condition,
     then: &Execute,
     el: Option<&Execute>,
@@ -255,13 +86,7 @@ fn compile_if_cond(
             .map(|s| (true, "run ".to_string() + s))
             .collect()
     } else {
-        then.compile_internal(
-            String::new(),
-            require_grouping_uid.is_some(),
-            options,
-            global_state,
-            function_state,
-        )
+        then.compile_internal(String::new(), false, options, global_state, function_state)
     };
     // if the conditions have multiple parts joined by a disjunction, commands need to be grouped
     let each_or_cmd = (str_cond.len() > 1).then(|| {
@@ -348,6 +173,89 @@ fn compile_if_cond(
             (use_prefix, cmd)
         })
         .collect()
+}
+
+fn compile_since_20_format(
+    cond: &Condition,
+    then: &Execute,
+    el: Option<&Execute>,
+    prefix: &str,
+    options: &CompileOptions,
+    global_state: &MutCompilerState,
+    function_state: &FunctionCompilerState,
+) -> Vec<(bool, String)> {
+    let then_count = then.get_count(options);
+
+    let str_cond = cond.clone().compile(options, global_state, function_state);
+
+    // if the conditions have multiple parts joined by a disjunction or an else part, commands need to be grouped
+    if el.is_some() || str_cond.len() > 1 {
+        // prepare commands for grouping
+        let then_cmd = match then.clone() {
+            Execute::Run(cmd) => vec![*cmd],
+            Execute::Runs(cmds) => cmds,
+            ex => vec![Command::Execute(ex)],
+        };
+        let then_cmd_str = Command::Group(then_cmd)
+            .compile(options, global_state, function_state)
+            .into_iter()
+            .map(|s| (true, format!("run return run {s}")))
+            .collect::<Vec<_>>();
+        let then_cond_str = combine_conditions_commands(str_cond, &then_cmd_str);
+        let mut group_cmds = then_cond_str
+            .into_iter()
+            .map(|(_, cmd)| Command::Raw(format!("execute {cmd}")))
+            .collect::<Vec<_>>();
+        if let Some(el) = el {
+            let el_cmd = match el.clone() {
+                Execute::Run(cmd) => vec![*cmd],
+                Execute::Runs(cmds) => cmds,
+                ex => vec![Command::Execute(ex)],
+            };
+            group_cmds.push(Command::Group(el_cmd));
+        }
+        Command::Group(group_cmds)
+            .compile(options, global_state, function_state)
+            .into_iter()
+            .map(|s| (true, s))
+            .collect()
+    } else if then_count > 1 {
+        let then_cmd = match then.clone() {
+            Execute::Run(cmd) => vec![*cmd],
+            Execute::Runs(cmds) => cmds,
+            ex => vec![Command::Execute(ex)],
+        };
+        let then_cmd_str = Command::Group(then_cmd)
+            .compile(options, global_state, function_state)
+            .into_iter()
+            .map(|s| (true, format!("run {s}")))
+            .collect::<Vec<_>>();
+        combine_conditions_commands(str_cond, &then_cmd_str)
+            .into_iter()
+            .map(|(use_prefix, cmd)| {
+                let cmd = if use_prefix {
+                    prefix.to_string() + &cmd
+                } else {
+                    cmd
+                };
+                (use_prefix, cmd)
+            })
+            .collect()
+    } else {
+        let str_cmd =
+            then.compile_internal(String::new(), false, options, global_state, function_state);
+        combine_conditions_commands(str_cond, &str_cmd)
+            .into_iter()
+            .map(|(use_prefix, cmd)| {
+                let cmd = if use_prefix {
+                    prefix.to_string() + &cmd
+                } else {
+                    cmd
+                };
+                (use_prefix, cmd)
+            })
+            .collect()
+    }
 }
 
 fn combine_conditions_commands(
@@ -445,7 +353,6 @@ impl Condition {
     }
 
     /// Compile the condition into a list of strings that can be used in Minecraft.
-    #[allow(clippy::only_used_in_recursion)]
     pub fn compile(
         &self,
         _options: &CompileOptions,
@@ -489,6 +396,12 @@ impl BitOr for Condition {
 
     fn bitor(self, rhs: Self) -> Self {
         Self::Or(Box::new(self), Box::new(rhs))
+    }
+}
+
+impl From<Execute> for Command {
+    fn from(ex: Execute) -> Self {
+        Self::Execute(ex)
     }
 }
 
@@ -603,35 +516,5 @@ mod tests {
                 (false, "2".to_string())
             ]
         );
-    }
-
-    #[test]
-    fn test_compile() {
-        let compiled = Execute::As(
-            "@ְa".to_string(),
-            Box::new(Execute::If(
-                "block ~ ~-1 ~ minecraft:stone".into(),
-                Box::new(Execute::Run(Box::new("say hi".into()))),
-                None,
-            )),
-        )
-        .compile(
-            &CompileOptions::default(),
-            &MutCompilerState::default(),
-            &FunctionCompilerState::default(),
-        );
-
-        assert_eq!(
-            compiled,
-            vec!["execute as @ְa if block ~ ~-1 ~ minecraft:stone run say hi".to_string()]
-        );
-
-        let direct = Execute::Run(Box::new("say direct".into())).compile(
-            &CompileOptions::default(),
-            &MutCompilerState::default(),
-            &FunctionCompilerState::default(),
-        );
-
-        assert_eq!(direct, vec!["say direct".to_string()]);
     }
 }
