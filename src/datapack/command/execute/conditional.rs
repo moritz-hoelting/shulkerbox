@@ -190,30 +190,15 @@ fn compile_since_20_format(
 
     // if the conditions have multiple parts joined by a disjunction or an else part, commands need to be grouped
     if el.is_some() || str_cond.len() > 1 {
-        // prepare commands for grouping
-        let then_cmd = match then.clone() {
-            Execute::Run(cmd) => vec![*cmd],
-            Execute::Runs(cmds) => cmds,
-            ex => vec![Command::Execute(ex)],
-        };
-        let then_cmd_str = Command::Group(then_cmd)
-            .compile(options, global_state, function_state)
-            .into_iter()
-            .map(|s| (true, format!("run return run {s}")))
-            .collect::<Vec<_>>();
-        let then_cond_str = combine_conditions_commands(str_cond, &then_cmd_str);
-        let mut group_cmds = then_cond_str
-            .into_iter()
-            .map(|(_, cmd)| Command::Raw(format!("execute {cmd}")))
-            .collect::<Vec<_>>();
-        if let Some(el) = el {
-            let el_cmd = match el.clone() {
-                Execute::Run(cmd) => vec![*cmd],
-                Execute::Runs(cmds) => cmds,
-                ex => vec![Command::Execute(ex)],
-            };
-            group_cmds.push(Command::Group(el_cmd));
-        }
+        let group_cmds = handle_return_group_case_since_20(
+            str_cond,
+            then,
+            el,
+            prefix,
+            options,
+            global_state,
+            function_state,
+        );
         Command::Group(group_cmds)
             .compile(options, global_state, function_state)
             .into_iter()
@@ -276,6 +261,81 @@ fn combine_conditions_commands(
             })
         })
         .collect()
+}
+
+fn handle_return_group_case_since_20(
+    str_cond: Vec<String>,
+    then: &Execute,
+    el: Option<&Execute>,
+    prefix: &str,
+    options: &CompileOptions,
+    global_state: &MutCompilerState,
+    function_state: &FunctionCompilerState,
+) -> Vec<Command> {
+    // prepare commands for grouping
+    let then_cmd = match then.clone() {
+        Execute::Run(cmd) => vec![*cmd],
+        Execute::Runs(cmds) => cmds,
+        ex => vec![Command::Execute(ex)],
+    };
+    let then_cmd_str = Command::Group(then_cmd)
+        .compile(options, global_state, function_state)
+        .into_iter()
+        .map(|s| (true, format!("run return run {s}")))
+        .collect::<Vec<_>>();
+    let then_cond_str = combine_conditions_commands(str_cond, &then_cmd_str);
+    let mut group_cmds = then_cond_str
+        .into_iter()
+        .map(|(_, cmd)| Command::Raw(format!("execute {cmd}")))
+        .collect::<Vec<_>>();
+    if let Some(el) = el {
+        handle_else_since_20(
+            &mut group_cmds,
+            el.clone(),
+            prefix,
+            options,
+            global_state,
+            function_state,
+        );
+    }
+    group_cmds
+}
+
+fn handle_else_since_20(
+    group_cmds: &mut Vec<Command>,
+    el: Execute,
+    prefix: &str,
+    options: &CompileOptions,
+    global_state: &MutCompilerState,
+    function_state: &FunctionCompilerState,
+) {
+    let el_cmd = match el {
+        Execute::If(cond, then, el) => handle_return_group_case_since_20(
+            cond.compile(options, global_state, function_state),
+            &then,
+            el.as_deref(),
+            prefix,
+            options,
+            global_state,
+            function_state,
+        ),
+        Execute::Run(cmd) => match *cmd {
+            Command::Execute(Execute::If(cond, then, el)) => handle_return_group_case_since_20(
+                cond.compile(options, global_state, function_state),
+                &then,
+                el.as_deref(),
+                prefix,
+                options,
+                global_state,
+                function_state,
+            ),
+
+            _ => vec![*cmd],
+        },
+        Execute::Runs(cmds) => cmds,
+        ex => vec![Command::Execute(ex)],
+    };
+    group_cmds.extend(el_cmd);
 }
 
 /// Condition for the execute command.
