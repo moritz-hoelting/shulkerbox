@@ -10,7 +10,7 @@ use chksum_md5 as md5;
 use super::Function;
 use crate::{
     prelude::Datapack,
-    util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+    util::{compile::{CompileOptions, FunctionCompilerState, MutCompilerState}, MacroString},
 };
 
 /// Represents a command that can be included in a function.
@@ -19,6 +19,8 @@ use crate::{
 pub enum Command {
     /// A command that is already formatted as a string.
     Raw(String),
+    /// A command that contains macro usages
+    UsesMacro(MacroString),
     /// Message to be printed only in debug mode
     Debug(String),
     /// Execute command
@@ -45,6 +47,7 @@ impl Command {
     ) -> Vec<String> {
         match self {
             Self::Raw(command) => vec![command.clone()],
+            Self::UsesMacro(command) => vec![compile_macro(command)],
             Self::Debug(message) => compile_debug(message, options),
             Self::Execute(ex) => ex.compile(options, global_state, function_state),
             Self::Group(commands) => compile_group(commands, options, global_state, function_state),
@@ -59,7 +62,8 @@ impl Command {
             // TODO: change comment to compile to `1`, make sure nothing breaks
             Self::Comment(_) => 0,
             Self::Debug(_) => usize::from(options.debug),
-            Self::Raw(cmd) => cmd.split('\n').count(),
+            Self::Raw(cmd) => cmd.lines().count(),
+            Self::UsesMacro(cmd) => cmd.line_count(),
             Self::Execute(ex) => ex.get_count(options),
             Self::Group(_) => 1,
         }
@@ -71,6 +75,7 @@ impl Command {
         match self {
             Self::Comment(_) | Self::Debug(_) | Self::Group(_) => true,
             Self::Raw(cmd) => validate_raw_cmd(cmd, pack_formats),
+            Self::UsesMacro(cmd) => validate_raw_cmd(&cmd.compile(), pack_formats),
             Self::Execute(ex) => ex.validate(pack_formats),
         }
     }
@@ -100,6 +105,14 @@ fn compile_debug(message: &str, option: &CompileOptions) -> Vec<String> {
         )]
     } else {
         Vec::new()
+    }
+}
+
+fn compile_macro(command: &MacroString) -> String {
+    if command.contains_macro() {
+        format!("${}", command.compile())
+    } else {
+        command.compile()
     }
 }
 
