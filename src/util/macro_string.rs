@@ -1,6 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashSet};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -62,6 +62,21 @@ impl MacroString {
                     .sum::<usize>()
                     + 1
             }
+        }
+    }
+
+    /// Returns the names of the macros used in the [`MacroString`]
+    #[must_use]
+    pub fn get_macros(&self) -> HashSet<&str> {
+        match self {
+            Self::String(_) => HashSet::new(),
+            Self::MacroString(parts) => parts
+                .iter()
+                .filter_map(|p| match p {
+                    MacroStringPart::String(_) => None,
+                    MacroStringPart::MacroUsage(m) => Some(m.as_str()),
+                })
+                .collect(),
         }
     }
 }

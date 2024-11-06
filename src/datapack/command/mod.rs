@@ -1,7 +1,11 @@
 //! Represents a command that can be included in a function.
 
 mod execute;
-use std::{collections::HashMap, ops::RangeInclusive, sync::OnceLock};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::RangeInclusive,
+    sync::OnceLock,
+};
 
 pub use execute::{Condition, Execute};
 
@@ -10,7 +14,10 @@ use chksum_md5 as md5;
 use super::Function;
 use crate::{
     prelude::Datapack,
-    util::{compile::{CompileOptions, FunctionCompilerState, MutCompilerState}, MacroString},
+    util::{
+        compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+        MacroString,
+    },
 };
 
 /// Represents a command that can be included in a function.
@@ -47,7 +54,7 @@ impl Command {
     ) -> Vec<String> {
         match self {
             Self::Raw(command) => vec![command.clone()],
-            Self::UsesMacro(command) => vec![compile_macro(command)],
+            Self::UsesMacro(command) => vec![command.compile()],
             Self::Debug(message) => compile_debug(message, options),
             Self::Execute(ex) => ex.compile(options, global_state, function_state),
             Self::Group(commands) => compile_group(commands, options, global_state, function_state),
@@ -79,6 +86,26 @@ impl Command {
             Self::Execute(ex) => ex.validate(pack_formats),
         }
     }
+
+    /// Check whether the command contains a macro.
+    #[must_use]
+    pub fn contains_macro(&self, options: &CompileOptions) -> bool {
+        match self {
+            Self::Raw(_) | Self::Comment(_) | Self::Debug(_) | Self::Execute(_) => false,
+            Self::UsesMacro(cmd) => cmd.contains_macro(),
+            Self::Group(commands) => group_contains_macro(commands, options),
+        }
+    }
+
+    /// Returns the names of the macros used
+    #[must_use]
+    pub fn get_macros(&self) -> HashSet<&str> {
+        match self {
+            Self::Raw(_) | Self::Comment(_) | Self::Debug(_) | Self::Execute(_) => HashSet::new(),
+            Self::UsesMacro(cmd) => cmd.get_macros(),
+            Self::Group(commands) => group_get_macros(commands),
+        }
+    }
 }
 
 impl From<&str> for Command {
@@ -108,14 +135,6 @@ fn compile_debug(message: &str, option: &CompileOptions) -> Vec<String> {
     }
 }
 
-fn compile_macro(command: &MacroString) -> String {
-    if command.contains_macro() {
-        format!("${}", command.compile())
-    } else {
-        command.compile()
-    }
-}
-
 #[tracing::instrument(skip_all, fields(commands = ?commands))]
 fn compile_group(
     commands: &[Command],
@@ -130,6 +149,7 @@ fn compile_group(
     // only create a function if there are more than one command
     if command_count > 1 {
         let uid = function_state.request_uid();
+        let pass_macros = group_contains_macro(commands, options);
 
         // calculate a hashed path for the function in the `sb` subfolder
         let function_path = {
@@ -149,13 +169,40 @@ fn compile_group(
         function.get_commands_mut().extend(commands.iter().cloned());
         function_state.add_function(&function_path, function);
 
-        vec![format!("function {namespace}:{function_path}")]
+        let mut function_invocation = format!("function {namespace}:{function_path}");
+
+        if pass_macros {
+            let macros_block =
+                group_get_macros(commands)
+                    .into_iter()
+                    .fold(String::new(), |mut s, m| {
+                        use std::fmt::Write;
+
+                        write!(&mut s, "{m}:$({m})").expect("can always write to string");
+                        s
+                    });
+            function_invocation.push_str(&format!(" {{{macros_block}}}"));
+        }
+
+        vec![function_invocation]
     } else {
         commands
             .iter()
             .flat_map(|cmd| cmd.compile(options, global_state, function_state))
             .collect::<Vec<_>>()
     }
+}
+
+fn group_contains_macro(commands: &[Command], options: &CompileOptions) -> bool {
+    commands.iter().any(|cmd| cmd.contains_macro(options))
+}
+
+fn group_get_macros(commands: &[Command]) -> HashSet<&str> {
+    let mut macros = HashSet::new();
+    for cmd in commands {
+        macros.extend(cmd.get_macros());
+    }
+    macros
 }
 
 #[allow(clippy::too_many_lines)]

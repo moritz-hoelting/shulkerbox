@@ -62,7 +62,15 @@ impl Function {
         let content = self
             .commands
             .iter()
-            .flat_map(|c| c.compile(options, global_state, function_state))
+            .flat_map(|c| {
+                let cmds = c.compile(options, global_state, function_state);
+
+                if c.contains_macro(options) {
+                    cmds.into_iter().map(|c| format!("${c}")).collect()
+                } else {
+                    cmds
+                }
+            })
             .collect::<Vec<String>>()
             .join("\n");
         VFile::Text(content)
