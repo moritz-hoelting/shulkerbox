@@ -1,9 +1,9 @@
-use std::ops::RangeInclusive;
+use std::{collections::HashSet, ops::RangeInclusive};
 
 use super::Command;
 use crate::util::{
     compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
-    ExtendableQueue,
+    ExtendableQueue, MacroString,
 };
 
 mod conditional;
@@ -15,18 +15,18 @@ pub use conditional::Condition;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Execute {
-    Align(String, Box<Execute>),
-    Anchored(String, Box<Execute>),
-    As(String, Box<Execute>),
-    At(String, Box<Execute>),
-    AsAt(String, Box<Execute>),
-    Facing(String, Box<Execute>),
-    In(String, Box<Execute>),
-    On(String, Box<Execute>),
-    Positioned(String, Box<Execute>),
-    Rotated(String, Box<Execute>),
-    Store(String, Box<Execute>),
-    Summon(String, Box<Execute>),
+    Align(MacroString, Box<Execute>),
+    Anchored(MacroString, Box<Execute>),
+    As(MacroString, Box<Execute>),
+    At(MacroString, Box<Execute>),
+    AsAt(MacroString, Box<Execute>),
+    Facing(MacroString, Box<Execute>),
+    In(MacroString, Box<Execute>),
+    On(MacroString, Box<Execute>),
+    Positioned(MacroString, Box<Execute>),
+    Rotated(MacroString, Box<Execute>),
+    Store(MacroString, Box<Execute>),
+    Summon(MacroString, Box<Execute>),
     If(Condition, Box<Execute>, Option<Box<Execute>>),
     Run(Box<Command>),
     Runs(Vec<Command>),
@@ -78,15 +78,23 @@ impl Execute {
             | Self::On(arg, next)
             | Self::Positioned(arg, next)
             | Self::Rotated(arg, next)
-            | Self::Store(arg, next) => next.compile_internal(
-                format!("{prefix}{op} {arg} ", op = self.variant_name()),
+            | Self::Store(arg, next)
+            | Self::Summon(arg, next) => next.compile_internal(
+                format!(
+                    "{prefix}{op} {arg} ",
+                    op = self.variant_name(),
+                    arg = arg.compile()
+                ),
                 require_grouping,
                 options,
                 global_state,
                 function_state,
             ),
             Self::AsAt(selector, next) => next.compile_internal(
-                format!("{prefix}as {selector} at @s "),
+                format!(
+                    "{prefix}as {selector} at @s ",
+                    selector = selector.compile()
+                ),
                 require_grouping,
                 options,
                 global_state,
@@ -97,13 +105,6 @@ impl Execute {
                 then.as_ref(),
                 el.as_deref(),
                 &prefix,
-                options,
-                global_state,
-                function_state,
-            ),
-            Self::Summon(arg, next) => next.compile_internal(
-                format!("{prefix}{op} {arg} ", op = self.variant_name()),
-                true,
                 options,
                 global_state,
                 function_state,
@@ -119,19 +120,27 @@ impl Execute {
                 command => command
                     .compile(options, global_state, function_state)
                     .into_iter()
-                    .map(|c| map_run_cmd(c, &prefix))
+                    .map(|c| map_run_cmd(command.forbid_prefix(), c, &prefix))
                     .collect(),
             },
             Self::Runs(commands) if !require_grouping => commands
                 .iter()
-                .flat_map(|c| c.compile(options, global_state, function_state))
-                .map(|c| map_run_cmd(c, &prefix))
+                .flat_map(|c| {
+                    let forbid_prefix = c.forbid_prefix();
+                    c.compile(options, global_state, function_state)
+                        .into_iter()
+                        .map(move |c| (forbid_prefix, c))
+                })
+                .map(|(forbid_prefix, c)| map_run_cmd(forbid_prefix, c, &prefix))
                 .collect(),
-            Self::Runs(commands) => Command::Group(commands.clone())
-                .compile(options, global_state, function_state)
-                .into_iter()
-                .map(|c| map_run_cmd(c, &prefix))
-                .collect(),
+            Self::Runs(commands) => {
+                let group = Command::Group(commands.clone());
+                group
+                    .compile(options, global_state, function_state)
+                    .into_iter()
+                    .map(|c| map_run_cmd(group.forbid_prefix(), c, &prefix))
+                    .collect()
+            }
         }
     }
 
@@ -200,12 +209,87 @@ impl Execute {
             }
         }
     }
+
+    /// Check whether the execute command contains a macro.
+    #[must_use]
+    pub fn contains_macro(&self) -> bool {
+        match self {
+            Self::Facing(s, next)
+            | Self::Store(s, next)
+            | Self::Positioned(s, next)
+            | Self::Rotated(s, next)
+            | Self::In(s, next)
+            | Self::As(s, next)
+            | Self::At(s, next)
+            | Self::AsAt(s, next)
+            | Self::Align(s, next)
+            | Self::Anchored(s, next)
+            | Self::Summon(s, next)
+            | Self::On(s, next) => s.contains_macro() || next.contains_macro(),
+            Self::If(cond, then, el) => {
+                cond.contains_macro()
+                    || then.contains_macro()
+                    || el.as_deref().map_or(false, Self::contains_macro)
+            }
+            Self::Run(cmd) => cmd.contains_macro(),
+            Self::Runs(cmds) => cmds.iter().any(super::Command::contains_macro),
+        }
+    }
+
+    /// Returns the names of the macros used
+    #[must_use]
+    pub fn get_macros(&self) -> HashSet<&str> {
+        match self {
+            Self::Facing(s, _)
+            | Self::Store(s, _)
+            | Self::Positioned(s, _)
+            | Self::Rotated(s, _)
+            | Self::In(s, _)
+            | Self::As(s, _)
+            | Self::At(s, _)
+            | Self::AsAt(s, _)
+            | Self::Align(s, _)
+            | Self::Anchored(s, _)
+            | Self::Summon(s, _)
+            | Self::On(s, _) => s.get_macros(),
+            Self::If(cond, then, el) => {
+                let mut macros = cond.get_macros();
+                macros.extend(then.get_macros());
+                if let Some(el) = el {
+                    macros.extend(el.get_macros());
+                }
+                macros
+            }
+            Self::Run(cmd) => cmd.get_macros(),
+            Self::Runs(cmds) => cmds.iter().flat_map(|cmd| cmd.get_macros()).collect(),
+        }
+    }
+}
+
+impl From<Execute> for Command {
+    fn from(execute: Execute) -> Self {
+        Self::Execute(execute)
+    }
+}
+
+impl From<Command> for Execute {
+    fn from(command: Command) -> Self {
+        Self::Run(Box::new(command))
+    }
+}
+impl<V> From<V> for Execute
+where
+    V: Into<Vec<Command>>,
+{
+    fn from(value: V) -> Self {
+        Self::Runs(value.into())
+    }
 }
 
 /// Combine command parts, respecting if the second part is a comment
 /// The first tuple element is a boolean indicating if the prefix should be used
-fn map_run_cmd(cmd: String, prefix: &str) -> (bool, String) {
-    if cmd.starts_with('#') || cmd.is_empty() || cmd.chars().all(char::is_whitespace) {
+fn map_run_cmd(forbid_prefix: bool, cmd: String, prefix: &str) -> (bool, String) {
+    if forbid_prefix || cmd.is_empty() || cmd.chars().all(char::is_whitespace) {
         (false, cmd)
     } else {
         (true, prefix.to_string() + "run " + &cmd)
@@ -219,7 +303,7 @@ mod tests {
     #[test]
     fn test_compile() {
         let compiled = Execute::As(
-            "@ְa".to_string(),
+            "@a".into(),
             Box::new(Execute::If(
                 "block ~ ~-1 ~ minecraft:stone".into(),
                 Box::new(Execute::Run(Box::new("say hi".into()))),
@@ -234,7 +318,7 @@ mod tests {
 
         assert_eq!(
             compiled,
-            vec!["execute as @ְa if block ~ ~-1 ~ minecraft:stone run say hi".to_string()]
+            vec!["execute as @a if block ~ ~-1 ~ minecraft:stone run say hi".to_string()]
         );
 
         let direct = Execute::Run(Box::new("say direct".into())).compile(

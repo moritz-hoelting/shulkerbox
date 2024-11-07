@@ -1,6 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-use std::{borrow::Cow, collections::HashSet};
+use std::{borrow::Cow, collections::HashSet, ops::Add};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -100,5 +100,48 @@ impl From<String> for MacroStringPart {
 impl From<&str> for MacroStringPart {
     fn from(value: &str) -> Self {
         Self::String(value.to_string())
+    }
+}
+
+impl Add for MacroString {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::String(mut s1), Self::String(s2)) => {
+                s1.push_str(&s2);
+                Self::String(s1)
+            }
+            (Self::String(s1), Self::MacroString(s2)) => Self::MacroString(
+                std::iter::once(MacroStringPart::String(s1))
+                    .chain(s2)
+                    .collect(),
+            ),
+            (Self::MacroString(mut s1), Self::String(s2)) => {
+                s1.push(MacroStringPart::String(s2));
+                Self::MacroString(s1)
+            }
+            (Self::MacroString(mut s1), Self::MacroString(s2)) => {
+                s1.extend(s2);
+                Self::MacroString(s1)
+            }
+        }
+    }
+}
+
+impl Add<&str> for MacroString {
+    type Output = Self;
+
+    fn add(self, rhs: &str) -> Self::Output {
+        match self {
+            Self::String(mut s1) => {
+                s1.push_str(rhs);
+                Self::String(s1)
+            }
+            Self::MacroString(mut s1) => {
+                s1.push(MacroStringPart::String(rhs.to_string()));
+                Self::MacroString(s1)
+            }
+        }
     }
 }

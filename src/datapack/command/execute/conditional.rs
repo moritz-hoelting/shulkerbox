@@ -1,9 +1,15 @@
 use chksum_md5 as md5;
-use std::ops::{BitAnd, BitOr, Not};
+use std::{
+    collections::HashSet,
+    ops::{BitAnd, BitOr, Not},
+};
 
 use crate::{
     prelude::Command,
-    util::compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+    util::{
+        compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+        MacroString,
+    },
 };
 
 use super::Execute;
@@ -80,10 +86,18 @@ fn compile_pre_20_format(
                     .into(),
             );
         }
-        Command::Group(group_cmd)
+        let group = Command::Group(group_cmd);
+        let allows_prefix = !group.forbid_prefix();
+        group
             .compile(options, global_state, function_state)
             .iter()
-            .map(|s| (true, "run ".to_string() + s))
+            .map(|s| {
+                if allows_prefix {
+                    (true, "run ".to_string() + s)
+                } else {
+                    (false, s.clone())
+                }
+            })
             .collect()
     } else {
         then.compile_internal(String::new(), false, options, global_state, function_state)
@@ -111,11 +125,10 @@ fn compile_pre_20_format(
             tracing::error!("No success_uid found for each_or_cmd, using default");
             "if_success"
         });
-        Condition::Atom(format!("data storage shulkerbox:cond {{{success_uid}:1b}}")).compile(
-            options,
-            global_state,
-            function_state,
-        )
+        Condition::Atom(MacroString::from(format!(
+            "data storage shulkerbox:cond {{{success_uid}:1b}}"
+        )))
+        .compile(options, global_state, function_state)
     } else {
         str_cond
     };
@@ -128,9 +141,10 @@ fn compile_pre_20_format(
                 tracing::error!("No success_uid found for each_or_cmd, using default");
                 "if_success"
             });
-            let else_cond =
-                (!Condition::Atom(format!("data storage shulkerbox:cond {{{success_uid}:1b}}")))
-                    .compile(options, global_state, function_state);
+            let else_cond = (!Condition::Atom(MacroString::from(format!(
+                "data storage shulkerbox:cond {{{success_uid}:1b}}"
+            ))))
+            .compile(options, global_state, function_state);
             let el = el.compile_internal(
                 String::new(),
                 else_cond.len() > 1,
@@ -186,7 +200,9 @@ fn compile_since_20_format(
 ) -> Vec<(bool, String)> {
     let then_count = then.get_count(options);
 
-    let str_cond = cond.clone().compile(options, global_state, function_state);
+    let str_cond = cond
+        .clone()
+        .compile_keep_macros(options, global_state, function_state);
 
     // if the conditions have multiple parts joined by a disjunction or an else part, commands need to be grouped
     if el.is_some() || str_cond.len() > 1 {
@@ -199,10 +215,12 @@ fn compile_since_20_format(
             global_state,
             function_state,
         );
-        Command::Group(group_cmds)
+        let group = Command::Group(group_cmds);
+        let allows_prefix = !group.forbid_prefix();
+        group
             .compile(options, global_state, function_state)
             .into_iter()
-            .map(|s| (true, s))
+            .map(|s| (allows_prefix, s))
             .collect()
     } else if then_count > 1 {
         let then_cmd = match then.clone() {
@@ -210,36 +228,48 @@ fn compile_since_20_format(
             Execute::Runs(cmds) => cmds,
             ex => vec![Command::Execute(ex)],
         };
-        let then_cmd_str = Command::Group(then_cmd)
-            .compile(options, global_state, function_state)
+        let group_cmd = Command::Group(then_cmd);
+        let then_cmd = if group_cmd.forbid_prefix() {
+            group_cmd
+        } else {
+            Command::Concat(
+                Box::new(Command::Raw("run ".to_string())),
+                Box::new(group_cmd),
+            )
+        };
+        combine_conditions_commands_concat(str_cond, &then_cmd)
             .into_iter()
-            .map(|s| (true, format!("run {s}")))
-            .collect::<Vec<_>>();
-        combine_conditions_commands(str_cond, &then_cmd_str)
-            .into_iter()
-            .map(|(use_prefix, cmd)| {
-                let cmd = if use_prefix {
-                    prefix.to_string() + &cmd
-                } else {
-                    cmd
-                };
-                (use_prefix, cmd)
+            .map(|cmd| {
+                (
+                    cmd.forbid_prefix(),
+                    cmd.compile(options, global_state, function_state),
+                )
+            })
+            .flat_map(|(forbid_prefix, cmds)| {
+                cmds.into_iter()
+                    .map(move |cmd| (!forbid_prefix, prefix.to_string() + &cmd))
             })
             .collect()
     } else {
-        let str_cmd =
-            then.compile_internal(String::new(), false, options, global_state, function_state);
-        combine_conditions_commands(str_cond, &str_cmd)
-            .into_iter()
-            .map(|(use_prefix, cmd)| {
-                let cmd = if use_prefix {
-                    prefix.to_string() + &cmd
-                } else {
-                    cmd
-                };
-                (use_prefix, cmd)
-            })
-            .collect()
+        combine_conditions_commands_concat(
+            str_cond,
+            &Command::Concat(
+                Box::new(Command::Raw("run ".to_string())),
+                Box::new(Command::Execute(then.clone())),
+            ),
+        )
+        .into_iter()
+        .map(|cmd| {
+            (
+                cmd.forbid_prefix(),
+                cmd.compile(options, global_state, function_state),
+            )
+        })
+        .flat_map(|(forbid_prefix, cmds)| {
+            cmds.into_iter()
+                .map(move |cmd| (!forbid_prefix, prefix.to_string() + &cmd))
+        })
+        .collect()
     }
 }
 
@@ -263,8 +293,29 @@ fn combine_conditions_commands(
         .collect()
 }
 
+fn combine_conditions_commands_concat(
+    conditions: Vec<MacroString>,
+    command: &Command,
+) -> Vec<Command> {
+    if command.forbid_prefix() {
+        vec![command.clone()]
+    } else {
+        conditions
+            .into_iter()
+            .map(|cond| {
+                let prefix = if cond.contains_macro() {
+                    Command::UsesMacro(cond + " ")
+                } else {
+                    Command::Raw(cond.compile() + " ")
+                };
+                Command::Concat(Box::new(prefix), Box::new(command.clone()))
+            })
+            .collect()
+    }
+}
+
 fn handle_return_group_case_since_20(
-    str_cond: Vec<String>,
+    str_cond: Vec<MacroString>,
     then: &Execute,
     el: Option<&Execute>,
     prefix: &str,
@@ -278,15 +329,28 @@ fn handle_return_group_case_since_20(
         Execute::Runs(cmds) => cmds,
         ex => vec![Command::Execute(ex)],
     };
-    let then_cmd_str = Command::Group(then_cmd)
-        .compile(options, global_state, function_state)
+    let group = Command::Group(then_cmd);
+    let then_cmd_concat = if group.forbid_prefix() {
+        group
+    } else {
+        Command::Concat(
+            Box::new(Command::Raw("run return run ".to_string())),
+            Box::new(group),
+        )
+    };
+    let then_cond_concat = combine_conditions_commands_concat(str_cond, &then_cmd_concat);
+    let mut group_cmds = then_cond_concat
         .into_iter()
-        .map(|s| (true, format!("run return run {s}")))
-        .collect::<Vec<_>>();
-    let then_cond_str = combine_conditions_commands(str_cond, &then_cmd_str);
-    let mut group_cmds = then_cond_str
-        .into_iter()
-        .map(|(_, cmd)| Command::Raw(format!("execute {cmd}")))
+        .map(|cmd| {
+            if cmd.forbid_prefix() {
+                cmd
+            } else {
+                Command::Concat(
+                    Box::new(Command::Raw("execute ".to_string())),
+                    Box::new(cmd),
+                )
+            }
+        })
         .collect::<Vec<_>>();
     if let Some(el) = el {
         handle_else_since_20(
@@ -311,7 +375,7 @@ fn handle_else_since_20(
 ) {
     let el_cmd = match el {
         Execute::If(cond, then, el) => handle_return_group_case_since_20(
-            cond.compile(options, global_state, function_state),
+            cond.compile_keep_macros(options, global_state, function_state),
             &then,
             el.as_deref(),
             prefix,
@@ -321,7 +385,7 @@ fn handle_else_since_20(
         ),
         Execute::Run(cmd) => match *cmd {
             Command::Execute(Execute::If(cond, then, el)) => handle_return_group_case_since_20(
-                cond.compile(options, global_state, function_state),
+                cond.compile_keep_macros(options, global_state, function_state),
                 &then,
                 el.as_deref(),
                 prefix,
@@ -343,7 +407,7 @@ fn handle_else_since_20(
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Condition {
-    Atom(String),
+    Atom(MacroString),
     Not(Box<Condition>),
     And(Box<Condition>, Box<Condition>),
     Or(Box<Condition>, Box<Condition>),
@@ -392,21 +456,21 @@ impl Condition {
         }
     }
 
-    /// Convert the condition into a string.
+    /// Convert the condition into a [`MacroString`].
     ///
     /// Will fail if the condition contains an `Or` variant. Use `compile` instead.
-    fn str_cond(&self) -> Option<String> {
+    fn str_cond(&self) -> Option<MacroString> {
         match self {
-            Self::Atom(s) => Some("if ".to_string() + s),
+            Self::Atom(s) => Some(MacroString::from("if ") + s.clone()),
             Self::Not(n) => match *(*n).clone() {
-                Self::Atom(s) => Some("unless ".to_string() + &s),
+                Self::Atom(s) => Some(MacroString::from("unless ") + s),
                 _ => None,
             },
             Self::And(a, b) => {
                 let a = a.str_cond()?;
                 let b = b.str_cond()?;
 
-                Some(a + " " + &b)
+                Some(a + MacroString::from(" ") + b)
             }
             Self::Or(..) => None,
         }
@@ -415,10 +479,23 @@ impl Condition {
     /// Compile the condition into a list of strings that can be used in Minecraft.
     pub fn compile(
         &self,
+        options: &CompileOptions,
+        global_state: &MutCompilerState,
+        function_state: &FunctionCompilerState,
+    ) -> Vec<String> {
+        self.compile_keep_macros(options, global_state, function_state)
+            .into_iter()
+            .map(|s| s.compile())
+            .collect()
+    }
+
+    /// Compile the condition into a list of macro strings.
+    pub fn compile_keep_macros(
+        &self,
         _options: &CompileOptions,
         _global_state: &MutCompilerState,
         _function_state: &FunctionCompilerState,
-    ) -> Vec<String> {
+    ) -> Vec<MacroString> {
         let truth_table = self.to_truth_table();
 
         truth_table
@@ -427,13 +504,37 @@ impl Condition {
                 c.str_cond()
                     .expect("Truth table should not contain Or variants")
             })
-            .collect()
+            .collect::<Vec<_>>()
+    }
+
+    /// Check whether the condition contains a macro.
+    #[must_use]
+    pub fn contains_macro(&self) -> bool {
+        match self {
+            Self::Atom(s) => s.contains_macro(),
+            Self::Not(n) => n.contains_macro(),
+            Self::And(a, b) | Self::Or(a, b) => a.contains_macro() || b.contains_macro(),
+        }
+    }
+
+    /// Returns the names of the macros used
+    #[must_use]
+    pub fn get_macros(&self) -> HashSet<&str> {
+        match self {
+            Self::Atom(s) => s.get_macros(),
+            Self::Not(n) => n.get_macros(),
+            Self::And(a, b) | Self::Or(a, b) => {
+                let mut set = a.get_macros();
+                set.extend(b.get_macros());
+                set
+            }
+        }
     }
 }
 
 impl From<&str> for Condition {
     fn from(s: &str) -> Self {
-        Self::Atom(s.to_string())
+        Self::Atom(s.into())
     }
 }
 
@@ -459,12 +560,6 @@ impl BitOr for Condition {
     }
 }
 
-impl From<Execute> for Command {
-    fn from(ex: Execute) -> Self {
-        Self::Execute(ex)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,8 +568,8 @@ mod tests {
     #[test]
     fn test_condition() {
         let c1 = Condition::from("foo");
-        let c2 = Condition::Atom("bar".to_string());
-        let c3 = Condition::Atom("baz".to_string());
+        let c2 = Condition::Atom("bar".into());
+        let c3 = Condition::Atom("baz".into());
 
         assert_eq!(
             (c1.clone() & c2.clone()).normalize(),
@@ -517,10 +612,10 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     #[test]
     fn test_truth_table() {
-        let c1 = Condition::Atom("foo".to_string());
-        let c2 = Condition::Atom("bar".to_string());
-        let c3 = Condition::Atom("baz".to_string());
-        let c4 = Condition::Atom("foobar".to_string());
+        let c1 = Condition::Atom("foo".into());
+        let c2 = Condition::Atom("bar".into());
+        let c3 = Condition::Atom("baz".into());
+        let c4 = Condition::Atom("foobar".into());
 
         assert_eq!(
             (c1.clone() & c2.clone()).to_truth_table(),

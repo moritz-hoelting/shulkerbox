@@ -65,8 +65,16 @@ impl Function {
             .flat_map(|c| {
                 let cmds = c.compile(options, global_state, function_state);
 
-                if c.contains_macro(options) {
-                    cmds.into_iter().map(|c| format!("${c}")).collect()
+                if c.contains_macro() {
+                    cmds.into_iter()
+                        .map(|c| {
+                            if c.starts_with('#') {
+                                c
+                            } else {
+                                format!("${c}")
+                            }
+                        })
+                        .collect()
                 } else {
                     cmds
                 }

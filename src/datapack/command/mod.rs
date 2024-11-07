@@ -36,6 +36,8 @@ pub enum Command {
     Group(Vec<Command>),
     /// Comment to be added to the function
     Comment(String),
+    /// Command that is a concatenation of two commands
+    Concat(Box<Command>, Box<Command>),
 }
 
 impl Command {
@@ -59,6 +61,23 @@ impl Command {
             Self::Execute(ex) => ex.compile(options, global_state, function_state),
             Self::Group(commands) => compile_group(commands, options, global_state, function_state),
             Self::Comment(comment) => vec!["#".to_string() + comment],
+            Self::Concat(a, b) => {
+                let a = a.compile(options, global_state, function_state);
+                let b = b.compile(options, global_state, function_state);
+                a.into_iter()
+                    .flat_map(|a| {
+                        b.iter().map(move |b| {
+                            if a.is_empty() {
+                                b.clone()
+                            } else if b.is_empty() {
+                                a.clone()
+                            } else {
+                                a.clone() + b
+                            }
+                        })
+                    })
+                    .collect()
+            }
         }
     }
 
@@ -73,27 +92,36 @@ impl Command {
             Self::UsesMacro(cmd) => cmd.line_count(),
             Self::Execute(ex) => ex.get_count(options),
             Self::Group(_) => 1,
+            Self::Concat(a, b) => a.get_count(options) + b.get_count(options) - 1,
         }
     }
 
     /// Check whether the command is valid with the given pack format.
     #[must_use]
     pub fn validate(&self, pack_formats: &RangeInclusive<u8>) -> bool {
-        match self {
+        let command_valid = match self {
             Self::Comment(_) | Self::Debug(_) | Self::Group(_) => true,
             Self::Raw(cmd) => validate_raw_cmd(cmd, pack_formats),
             Self::UsesMacro(cmd) => validate_raw_cmd(&cmd.compile(), pack_formats),
             Self::Execute(ex) => ex.validate(pack_formats),
+            Self::Concat(a, b) => a.validate(pack_formats) && b.validate(pack_formats),
+        };
+        if pack_formats.start() < &16 {
+            command_valid && !self.contains_macro()
+        } else {
+            command_valid
         }
     }
 
     /// Check whether the command contains a macro.
     #[must_use]
-    pub fn contains_macro(&self, options: &CompileOptions) -> bool {
+    pub fn contains_macro(&self) -> bool {
         match self {
-            Self::Raw(_) | Self::Comment(_) | Self::Execute(_) => false,
+            Self::Raw(_) | Self::Comment(_) => false,
             Self::UsesMacro(s) | Self::Debug(s) => s.contains_macro(),
-            Self::Group(commands) => group_contains_macro(commands, options),
+            Self::Group(commands) => group_contains_macro(commands),
+            Self::Execute(ex) => ex.contains_macro(),
+            Self::Concat(a, b) => a.contains_macro() || b.contains_macro(),
         }
     }
 
@@ -101,9 +129,26 @@ impl Command {
     #[must_use]
     pub fn get_macros(&self) -> HashSet<&str> {
         match self {
-            Self::Raw(_) | Self::Comment(_) | Self::Execute(_) => HashSet::new(),
+            Self::Raw(_) | Self::Comment(_) => HashSet::new(),
             Self::UsesMacro(s) | Self::Debug(s) => s.get_macros(),
             Self::Group(commands) => group_get_macros(commands),
+            Self::Execute(ex) => ex.get_macros(),
+            Self::Concat(a, b) => {
+                let mut macros = a.get_macros();
+                macros.extend(b.get_macros());
+                macros
+            }
+        }
+    }
+
+    /// Check whether the command should not have a prefix.
+    #[must_use]
+    pub fn forbid_prefix(&self) -> bool {
+        match self {
+            Self::Comment(_) => true,
+            Self::Raw(_) | Self::Debug(_) | Self::Execute(_) | Self::UsesMacro(_) => false,
+            Self::Group(commands) => commands.len() == 1 && commands[0].forbid_prefix(),
+            Self::Concat(a, _) => a.forbid_prefix(),
         }
     }
 }
@@ -149,7 +194,7 @@ fn compile_group(
     // only create a function if there are more than one command
     if command_count > 1 {
         let uid = function_state.request_uid();
-        let pass_macros = group_contains_macro(commands, options);
+        let pass_macros = group_contains_macro(commands);
 
         // calculate a hashed path for the function in the `sb` subfolder
         let function_path = {
@@ -172,15 +217,11 @@ fn compile_group(
         let mut function_invocation = format!("function {namespace}:{function_path}");
 
         if pass_macros {
-            let macros_block =
-                group_get_macros(commands)
-                    .into_iter()
-                    .fold(String::new(), |mut s, m| {
-                        use std::fmt::Write;
-
-                        write!(&mut s, "{m}:$({m})").expect("can always write to string");
-                        s
-                    });
+            let macros_block = group_get_macros(commands)
+                .into_iter()
+                .map(|m| format!("{m}:$({m})"))
+                .collect::<Vec<_>>()
+                .join(",");
             function_invocation.push_str(&format!(" {{{macros_block}}}"));
         }
 
@@ -193,8 +234,8 @@ fn compile_group(
     }
 }
 
-fn group_contains_macro(commands: &[Command], options: &CompileOptions) -> bool {
-    commands.iter().any(|cmd| cmd.contains_macro(options))
+fn group_contains_macro(commands: &[Command]) -> bool {
+    commands.iter().any(Command::contains_macro)
 }
 
 fn group_get_macros(commands: &[Command]) -> HashSet<&str> {
