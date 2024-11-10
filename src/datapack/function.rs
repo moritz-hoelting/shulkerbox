@@ -68,18 +68,20 @@ impl Function {
                 if c.contains_macro() {
                     cmds.into_iter()
                         .map(|c| {
-                            if c.starts_with('#') {
-                                c
+                            if c.contains_macros() {
+                                let content = format!("${c}");
+                                c.with_command(content)
                             } else {
-                                format!("${c}")
+                                c
                             }
+                            .to_string()
                         })
-                        .collect()
+                        .collect::<Vec<_>>()
                 } else {
-                    cmds
+                    cmds.into_iter().map(|c| c.to_string()).collect::<Vec<_>>()
                 }
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<_>>()
             .join("\n");
         VFile::Text(content)
     }

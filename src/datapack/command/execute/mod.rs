@@ -2,7 +2,7 @@ use std::{collections::HashSet, ops::RangeInclusive, string::ToString};
 
 use super::Command;
 use crate::util::{
-    compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+    compile::{CompileOptions, CompiledCommand, FunctionCompilerState, MutCompilerState},
     ExtendableQueue, MacroString,
 };
 
@@ -39,7 +39,7 @@ impl Execute {
         options: &CompileOptions,
         global_state: &MutCompilerState,
         function_state: &FunctionCompilerState,
-    ) -> Vec<String> {
+    ) -> Vec<CompiledCommand> {
         // Directly compile the command if it is a run command, skipping the execute part
         // Otherwise, compile the execute command using internal function
         match self {
@@ -48,30 +48,29 @@ impl Execute {
                 .iter()
                 .flat_map(|c| c.compile(options, global_state, function_state))
                 .collect(),
-            _ => self
-                .compile_internal(
-                    String::from("execute "),
-                    false,
-                    options,
-                    global_state,
-                    function_state,
-                )
-                .into_iter()
-                .map(|(_, cmd)| cmd)
-                .collect(),
+            _ => self.compile_internal(
+                String::from("execute "),
+                false,
+                false,
+                options,
+                global_state,
+                function_state,
+            ),
         }
     }
 
     /// Compile the execute command into strings with the given prefix.
     /// Each first tuple element is a boolean indicating if the prefix should be used for that command.
+    #[expect(clippy::too_many_lines)]
     fn compile_internal(
         &self,
         prefix: String,
         require_grouping: bool,
+        prefix_contains_macros: bool,
         options: &CompileOptions,
         global_state: &MutCompilerState,
         function_state: &FunctionCompilerState,
-    ) -> Vec<(bool, String)> {
+    ) -> Vec<CompiledCommand> {
         match self {
             Self::Align(arg, next)
             | Self::Anchored(arg, next)
@@ -89,6 +88,7 @@ impl Execute {
                     arg = arg.compile()
                 ),
                 require_grouping,
+                prefix_contains_macros || arg.contains_macro(),
                 options,
                 global_state,
                 function_state,
@@ -99,6 +99,7 @@ impl Execute {
                     selector = selector.compile()
                 ),
                 require_grouping,
+                prefix_contains_macros || selector.contains_macro(),
                 options,
                 global_state,
                 function_state,
@@ -108,6 +109,7 @@ impl Execute {
                 then.as_ref(),
                 el.as_deref(),
                 &prefix,
+                prefix_contains_macros,
                 options,
                 global_state,
                 function_state,
@@ -119,6 +121,7 @@ impl Execute {
                     arg = arg.compile()
                 ),
                 true,
+                prefix_contains_macros || arg.contains_macro(),
                 options,
                 global_state,
                 function_state,
@@ -127,6 +130,7 @@ impl Execute {
                 Command::Execute(ex) => ex.compile_internal(
                     prefix,
                     require_grouping,
+                    prefix_contains_macros,
                     options,
                     global_state,
                     function_state,
@@ -134,36 +138,38 @@ impl Execute {
                 command => command
                     .compile(options, global_state, function_state)
                     .into_iter()
-                    .map(|c| map_run_cmd(command.forbid_prefix(), c, &prefix))
+                    .map(|c| {
+                        map_run_cmd(command.forbid_prefix(), c, &prefix)
+                            .or_contains_macros(prefix_contains_macros)
+                    })
                     .collect(),
             },
             Self::Runs(commands) if !require_grouping => commands
                 .iter()
-                .flat_map(|c| {
-                    let forbid_prefix = c.forbid_prefix();
-                    match c {
-                        Command::Execute(ex) => ex.compile_internal(
-                            prefix.clone(),
-                            require_grouping,
-                            options,
-                            global_state,
-                            function_state,
-                        ),
-                        command => command
-                            .compile(options, global_state, function_state)
-                            .into_iter()
-                            .map(move |c| (!forbid_prefix, c))
-                            .collect(),
-                    }
+                .flat_map(|c| match c {
+                    Command::Execute(ex) => ex.compile_internal(
+                        prefix.clone(),
+                        require_grouping,
+                        prefix_contains_macros,
+                        options,
+                        global_state,
+                        function_state,
+                    ),
+                    command => command.compile(options, global_state, function_state),
                 })
-                .map(|(require_prefix, c)| map_run_cmd(!require_prefix, c, &prefix))
+                .map(|cmd| {
+                    map_run_cmd(false, cmd, &prefix).or_contains_macros(prefix_contains_macros)
+                })
                 .collect(),
             Self::Runs(commands) => {
                 let group = Command::Group(commands.clone());
                 group
                     .compile(options, global_state, function_state)
                     .into_iter()
-                    .map(|c| map_run_cmd(group.forbid_prefix(), c, &prefix))
+                    .map(|c| {
+                        map_run_cmd(group.forbid_prefix(), c, &prefix)
+                            .or_contains_macros(prefix_contains_macros)
+                    })
                     .collect()
             }
         }
@@ -178,6 +184,7 @@ impl Execute {
 
         self.compile_internal(
             String::new(),
+            false,
             false,
             options,
             &global_state,
@@ -313,12 +320,11 @@ where
 
 /// Combine command parts, respecting if the second part is a comment
 /// The first tuple element is a boolean indicating if the prefix should be used
-fn map_run_cmd(forbid_prefix: bool, cmd: String, prefix: &str) -> (bool, String) {
-    if forbid_prefix || cmd.is_empty() || cmd.chars().all(char::is_whitespace) {
-        (false, cmd)
-    } else {
-        (true, prefix.to_string() + "run " + &cmd)
-    }
+fn map_run_cmd(forbid_prefix: bool, cmd: CompiledCommand, prefix: &str) -> CompiledCommand {
+    let forbid_prefix =
+        forbid_prefix || cmd.as_str().is_empty() || cmd.as_str().chars().all(char::is_whitespace);
+    cmd.or_forbid_prefix(forbid_prefix)
+        .apply_prefix(prefix.to_string() + "run ")
 }
 
 #[cfg(test)]
@@ -343,7 +349,9 @@ mod tests {
 
         assert_eq!(
             compiled,
-            vec!["execute as @a if block ~ ~-1 ~ minecraft:stone run say hi".to_string()]
+            vec![CompiledCommand::new(
+                "execute as @a if block ~ ~-1 ~ minecraft:stone run say hi"
+            )]
         );
 
         let direct = Execute::Run(Box::new("say direct".into())).compile(
@@ -352,6 +360,6 @@ mod tests {
             &FunctionCompilerState::default(),
         );
 
-        assert_eq!(direct, vec!["say direct".to_string()]);
+        assert_eq!(direct, vec![CompiledCommand::new("say direct")]);
     }
 }

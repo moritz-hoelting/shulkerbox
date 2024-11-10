@@ -7,7 +7,7 @@ use std::{
 use crate::{
     prelude::Command,
     util::{
-        compile::{CompileOptions, FunctionCompilerState, MutCompilerState},
+        compile::{CompileOptions, CompiledCommand, FunctionCompilerState, MutCompilerState},
         MacroString,
     },
 };
@@ -16,22 +16,25 @@ use super::Execute;
 
 /// Compile an if condition command.
 /// The first tuple element is a boolean indicating if the prefix should be used for that command.
+#[expect(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
 pub fn compile_if_cond(
     cond: &Condition,
     then: &Execute,
     el: Option<&Execute>,
     prefix: &str,
+    prefix_contains_macros: bool,
     options: &CompileOptions,
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
-) -> Vec<(bool, String)> {
+) -> Vec<CompiledCommand> {
     if options.pack_format < 20 {
         compile_pre_20_format(
             cond,
             then,
             el,
             prefix,
+            prefix_contains_macros,
             options,
             global_state,
             function_state,
@@ -42,6 +45,7 @@ pub fn compile_if_cond(
             then,
             el,
             prefix,
+            prefix_contains_macros,
             options,
             global_state,
             function_state,
@@ -49,16 +53,18 @@ pub fn compile_if_cond(
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines, clippy::too_many_arguments)]
 fn compile_pre_20_format(
     cond: &Condition,
     then: &Execute,
     el: Option<&Execute>,
     prefix: &str,
+    prefix_contains_macros: bool,
     options: &CompileOptions,
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
-) -> Vec<(bool, String)> {
+) -> Vec<CompiledCommand> {
+    let contains_macro = prefix_contains_macros || cond.contains_macro();
     let then_count = then.get_count(options);
 
     let str_cond = cond.clone().compile(options, global_state, function_state);
@@ -93,14 +99,21 @@ fn compile_pre_20_format(
             .iter()
             .map(|s| {
                 if allows_prefix {
-                    (true, "run ".to_string() + s)
+                    s.clone().apply_prefix("run ")
                 } else {
-                    (false, s.clone())
+                    s.clone()
                 }
             })
             .collect()
     } else {
-        then.compile_internal(String::new(), false, options, global_state, function_state)
+        then.compile_internal(
+            String::new(),
+            false,
+            contains_macro,
+            options,
+            global_state,
+            function_state,
+        )
     };
     // if the conditions have multiple parts joined by a disjunction, commands need to be grouped
     let each_or_cmd = (str_cond.len() > 1).then(|| {
@@ -112,10 +125,10 @@ fn compile_pre_20_format(
             format!("data modify storage shulkerbox:cond {success_uid} set value true"),
             combine_conditions_commands(
                 str_cond.clone(),
-                &[(
-                    true,
-                    format!("run data modify storage shulkerbox:cond {success_uid} set value true"),
-                )],
+                &[CompiledCommand::new(format!(
+                    "run data modify storage shulkerbox:cond {success_uid} set value true"
+                ))
+                .or_contains_macros(contains_macro)],
             ),
         )
     });
@@ -148,6 +161,7 @@ fn compile_pre_20_format(
             let el = el.compile_internal(
                 String::new(),
                 else_cond.len() > 1,
+                contains_macro,
                 options,
                 global_state,
                 function_state,
@@ -162,10 +176,10 @@ fn compile_pre_20_format(
             tracing::error!("No success_uid found for each_or_cmd, using default");
             "if_success"
         });
-        Some((
-            false,
-            format!("data remove storage shulkerbox:cond {success_uid}"),
-        ))
+        Some(
+            CompiledCommand::new(format!("data remove storage shulkerbox:cond {success_uid}"))
+                .with_forbid_prefix(true),
+        )
     } else {
         None
     };
@@ -178,26 +192,22 @@ fn compile_pre_20_format(
         .chain(then_commands)
         .chain(el_commands)
         .chain(reset_success_storage)
-        .map(|(use_prefix, cmd)| {
-            let cmd = if use_prefix {
-                prefix.to_string() + &cmd
-            } else {
-                cmd
-            };
-            (use_prefix, cmd)
-        })
+        .map(|cmd| cmd.apply_prefix(prefix))
         .collect()
 }
 
+#[expect(clippy::too_many_arguments)]
 fn compile_since_20_format(
     cond: &Condition,
     then: &Execute,
     el: Option<&Execute>,
     prefix: &str,
+    prefix_contains_macros: bool,
     options: &CompileOptions,
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
-) -> Vec<(bool, String)> {
+) -> Vec<CompiledCommand> {
+    let contains_macros = prefix_contains_macros || cond.contains_macro();
     let then_count = then.get_count(options);
 
     let str_cond = cond
@@ -216,12 +226,14 @@ fn compile_since_20_format(
             function_state,
         );
         let group = Command::Group(group_cmds);
-        let allows_prefix = !group.forbid_prefix();
-        group
-            .compile(options, global_state, function_state)
-            .into_iter()
-            .map(|s| (allows_prefix, s))
-            .collect()
+        let cmds = group.compile(options, global_state, function_state);
+        if contains_macros {
+            cmds.into_iter()
+                .map(|cmd| cmd.or_contains_macros(true))
+                .collect()
+        } else {
+            cmds
+        }
     } else if then_count > 1 {
         let then_cmd = match then.clone() {
             Execute::Run(cmd) => vec![*cmd],
@@ -239,30 +251,30 @@ fn compile_since_20_format(
         };
         combine_conditions_commands_concat(str_cond, &then_cmd)
             .into_iter()
-            .map(|cmd| {
-                (
-                    cmd.forbid_prefix(),
-                    cmd.compile(options, global_state, function_state),
-                )
-            })
-            .flat_map(|(forbid_prefix, cmds)| {
-                cmds.into_iter()
-                    .map(move |cmd| (!forbid_prefix, prefix.to_string() + &cmd))
+            .flat_map(|cmd| {
+                cmd.compile(options, global_state, function_state)
+                    .into_iter()
+                    .map(move |compiled_cmd| {
+                        compiled_cmd
+                            .apply_prefix(prefix)
+                            .or_contains_macros(contains_macros)
+                    })
             })
             .collect()
     } else {
         str_cond
             .into_iter()
             .flat_map(|cond| {
-                then.compile_internal(String::new(), false, options, global_state, function_state)
-                    .into_iter()
-                    .map(move |(require_prefix, cmd)| {
-                        if require_prefix {
-                            (true, prefix.to_string() + &cond.compile() + " " + &cmd)
-                        } else {
-                            (false, cmd)
-                        }
-                    })
+                then.compile_internal(
+                    String::new(),
+                    false,
+                    contains_macros,
+                    options,
+                    global_state,
+                    function_state,
+                )
+                .into_iter()
+                .map(move |cmd| cmd.apply_prefix(prefix.to_string() + &cond.compile() + " "))
             })
             .collect()
     }
@@ -270,19 +282,15 @@ fn compile_since_20_format(
 
 fn combine_conditions_commands(
     conditions: Vec<String>,
-    commands: &[(bool, String)],
-) -> Vec<(bool, String)> {
+    commands: &[CompiledCommand],
+) -> Vec<CompiledCommand> {
     conditions
         .into_iter()
         .flat_map(|cond| {
-            commands.iter().map(move |(use_prefix, cmd)| {
+            let prefix = cond + " ";
+            commands.iter().map(move |cmd| {
                 // combine the condition with the command if it uses a prefix
-                let cmd = if *use_prefix {
-                    cond.clone() + " " + cmd
-                } else {
-                    cmd.clone()
-                };
-                (*use_prefix, cmd)
+                cmd.clone().apply_prefix(&prefix)
             })
         })
         .collect()
@@ -652,18 +660,21 @@ mod tests {
             .into_iter()
             .map(str::to_string)
             .collect();
-        let commands = &[(true, "1".to_string()), (false, "2".to_string())];
+        let commands = &[
+            CompiledCommand::new("1".to_string()),
+            CompiledCommand::new("2".to_string()).with_forbid_prefix(true),
+        ];
 
         let combined = combine_conditions_commands(conditions, commands);
         assert_eq!(
             combined,
             vec![
-                (true, "a 1".to_string()),
-                (false, "2".to_string()),
-                (true, "b 1".to_string()),
-                (false, "2".to_string()),
-                (true, "c 1".to_string()),
-                (false, "2".to_string())
+                CompiledCommand::new("a 1".to_string()),
+                CompiledCommand::new("2".to_string()).with_forbid_prefix(true),
+                CompiledCommand::new("b 1".to_string()),
+                CompiledCommand::new("2".to_string()).with_forbid_prefix(true),
+                CompiledCommand::new("c 1".to_string()),
+                CompiledCommand::new("2".to_string()).with_forbid_prefix(true)
             ]
         );
     }

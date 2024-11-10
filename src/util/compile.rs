@@ -1,6 +1,6 @@
 //! Compile options for the compiler.
 
-use std::sync::Mutex;
+use std::{fmt::Display, ops::Deref, sync::Mutex};
 
 use getset::Getters;
 
@@ -84,5 +84,129 @@ impl FunctionCompilerState {
         let uid = *guard;
         *guard += 1;
         uid
+    }
+}
+
+/// Compiled command, ready to be written to a function.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct CompiledCommand {
+    /// The command string.
+    command: String,
+    /// Whether the command is not allowed to be prefixed.
+    forbid_prefix: bool,
+    /// Whether the command contains a macro.
+    contains_macros: bool,
+}
+
+impl CompiledCommand {
+    /// Create a new compiled command.
+    #[must_use]
+    pub fn new<S>(command: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self {
+            command: command.into(),
+            forbid_prefix: false,
+            contains_macros: false,
+        }
+    }
+
+    /// Get the command string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.command
+    }
+
+    /// Set the command string.
+    #[must_use]
+    pub fn with_command(mut self, command: String) -> Self {
+        self.command = command;
+        self
+    }
+
+    /// Set whether the command is forbidden to be prefixed.
+    #[must_use]
+    pub fn with_forbid_prefix(mut self, forbid_prefix: bool) -> Self {
+        self.forbid_prefix = forbid_prefix;
+        self
+    }
+
+    /// Set whether the command contains a macro.
+    #[must_use]
+    pub fn with_contains_macros(mut self, contains_macros: bool) -> Self {
+        self.contains_macros = contains_macros;
+        self
+    }
+
+    /// Get whether the command is forbidden to be prefixed.
+    #[must_use]
+    pub fn forbids_prefix(&self) -> bool {
+        self.forbid_prefix
+    }
+
+    /// Get whether the command contains a macro.
+    #[must_use]
+    pub fn contains_macros(&self) -> bool {
+        self.contains_macros
+    }
+
+    /// Apply a prefix to the command (if allowed).
+    #[must_use]
+    pub fn apply_prefix<S>(mut self, prefix: S) -> Self
+    where
+        S: Into<String>,
+    {
+        if !self.forbid_prefix {
+            self.command = prefix.into() + &self.command;
+        }
+        self
+    }
+
+    /// Combine current forbid prefix status with the input.
+    #[must_use]
+    pub fn or_forbid_prefix(mut self, forbid_prefix: bool) -> Self {
+        self.forbid_prefix = self.forbid_prefix || forbid_prefix;
+        self
+    }
+
+    /// Combine current contains macro status with the input.
+    #[must_use]
+    pub fn or_contains_macros(mut self, contains_macros: bool) -> Self {
+        self.contains_macros = self.contains_macros || contains_macros;
+        self
+    }
+}
+
+impl Deref for CompiledCommand {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.command
+    }
+}
+
+impl Display for CompiledCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.command)
+    }
+}
+
+impl From<CompiledCommand> for String {
+    fn from(compiled_command: CompiledCommand) -> Self {
+        compiled_command.command
+    }
+}
+
+impl From<String> for CompiledCommand {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&str> for CompiledCommand {
+    fn from(value: &str) -> Self {
+        Self::new(value.to_string())
     }
 }
