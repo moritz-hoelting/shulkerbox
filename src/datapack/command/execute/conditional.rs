@@ -251,25 +251,20 @@ fn compile_since_20_format(
             })
             .collect()
     } else {
-        combine_conditions_commands_concat(
-            str_cond,
-            &Command::Concat(
-                Box::new(Command::Raw("run ".to_string())),
-                Box::new(Command::Execute(then.clone())),
-            ),
-        )
-        .into_iter()
-        .map(|cmd| {
-            (
-                cmd.forbid_prefix(),
-                cmd.compile(options, global_state, function_state),
-            )
-        })
-        .flat_map(|(forbid_prefix, cmds)| {
-            cmds.into_iter()
-                .map(move |cmd| (!forbid_prefix, prefix.to_string() + &cmd))
-        })
-        .collect()
+        str_cond
+            .into_iter()
+            .flat_map(|cond| {
+                then.compile_internal(String::new(), false, options, global_state, function_state)
+                    .into_iter()
+                    .map(move |(require_prefix, cmd)| {
+                        if require_prefix {
+                            (true, prefix.to_string() + &cond.compile() + " " + &cmd)
+                        } else {
+                            (false, cmd)
+                        }
+                    })
+            })
+            .collect()
     }
 }
 

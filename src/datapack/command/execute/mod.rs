@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ops::RangeInclusive};
+use std::{collections::HashSet, ops::RangeInclusive, string::ToString};
 
 use super::Command;
 use crate::util::{
@@ -42,19 +42,23 @@ impl Execute {
     ) -> Vec<String> {
         // Directly compile the command if it is a run command, skipping the execute part
         // Otherwise, compile the execute command using internal function
-        if let Self::Run(cmd) = self {
-            cmd.compile(options, global_state, function_state)
-        } else {
-            self.compile_internal(
-                String::from("execute "),
-                false,
-                options,
-                global_state,
-                function_state,
-            )
-            .into_iter()
-            .map(|(_, cmd)| cmd)
-            .collect()
+        match self {
+            Self::Run(cmd) => cmd.compile(options, global_state, function_state),
+            Self::Runs(cmds) => cmds
+                .iter()
+                .flat_map(|c| c.compile(options, global_state, function_state))
+                .collect(),
+            _ => self
+                .compile_internal(
+                    String::from("execute "),
+                    false,
+                    options,
+                    global_state,
+                    function_state,
+                )
+                .into_iter()
+                .map(|(_, cmd)| cmd)
+                .collect(),
         }
     }
 
@@ -78,8 +82,7 @@ impl Execute {
             | Self::On(arg, next)
             | Self::Positioned(arg, next)
             | Self::Rotated(arg, next)
-            | Self::Store(arg, next)
-            | Self::Summon(arg, next) => next.compile_internal(
+            | Self::Store(arg, next) => next.compile_internal(
                 format!(
                     "{prefix}{op} {arg} ",
                     op = self.variant_name(),
@@ -109,7 +112,18 @@ impl Execute {
                 global_state,
                 function_state,
             ),
-            Self::Run(command) => match &**command {
+            Self::Summon(arg, next) => next.compile_internal(
+                format!(
+                    "{prefix}{op} {arg} ",
+                    op = self.variant_name(),
+                    arg = arg.compile()
+                ),
+                true,
+                options,
+                global_state,
+                function_state,
+            ),
+            Self::Run(command) => match command.as_ref() {
                 Command::Execute(ex) => ex.compile_internal(
                     prefix,
                     require_grouping,
@@ -127,11 +141,22 @@ impl Execute {
                 .iter()
                 .flat_map(|c| {
                     let forbid_prefix = c.forbid_prefix();
-                    c.compile(options, global_state, function_state)
-                        .into_iter()
-                        .map(move |c| (forbid_prefix, c))
+                    match c {
+                        Command::Execute(ex) => ex.compile_internal(
+                            prefix.clone(),
+                            require_grouping,
+                            options,
+                            global_state,
+                            function_state,
+                        ),
+                        command => command
+                            .compile(options, global_state, function_state)
+                            .into_iter()
+                            .map(move |c| (!forbid_prefix, c))
+                            .collect(),
+                    }
                 })
-                .map(|(forbid_prefix, c)| map_run_cmd(forbid_prefix, c, &prefix))
+                .map(|(require_prefix, c)| map_run_cmd(!require_prefix, c, &prefix))
                 .collect(),
             Self::Runs(commands) => {
                 let group = Command::Group(commands.clone());
