@@ -94,7 +94,7 @@ impl Command {
             // TODO: change comment to compile to `1`, make sure nothing breaks
             Self::Comment(_) => 0,
             Self::Debug(_) => usize::from(options.debug),
-            Self::Raw(cmd) => cmd.lines().count(),
+            Self::Raw(cmd) => cmd.split('\n').count(),
             Self::UsesMacro(cmd) => cmd.line_count(),
             Self::Execute(ex) => ex.get_count(options),
             Self::Group(_) => 1,

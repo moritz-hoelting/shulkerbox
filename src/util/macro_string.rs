@@ -51,12 +51,12 @@ impl MacroString {
     #[must_use]
     pub fn line_count(&self) -> usize {
         match self {
-            Self::String(s) => s.lines().count(),
+            Self::String(s) => s.split('\n').count(),
             Self::MacroString(parts) => {
                 parts
                     .iter()
                     .map(|p| match p {
-                        MacroStringPart::String(s) => s.lines().count() - 1,
+                        MacroStringPart::String(s) => s.split('\n').count() - 1,
                         MacroStringPart::MacroUsage(_) => 0,
                     })
                     .sum::<usize>()
