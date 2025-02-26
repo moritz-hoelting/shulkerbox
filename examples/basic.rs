@@ -22,7 +22,7 @@ fn main() {
     bar_function.add_command(call_func);
     // add a complex command to the function "bar"
     bar_function.add_command(Command::Execute(Execute::As(
-        "@a".to_string(),
+        "@a".into(),
         Box::new(Execute::If(
             Condition::from("block ~ ~ ~ minecraft:stone")
                 | !(!Condition::from("block ~ ~1 ~ minecraft:stone")
