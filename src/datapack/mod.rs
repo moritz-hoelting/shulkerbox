@@ -128,6 +128,12 @@ impl Datapack {
         );
     }
 
+    /// Scoreboards registered in the datapack.
+    #[must_use]
+    pub fn scoreboards(&self) -> &BTreeMap<String, (Option<String>, Option<String>)> {
+        &self.scoreboards
+    }
+
     /// Add a custom file to the datapack.
     pub fn add_custom_file(&mut self, path: &str, file: VFile) {
         self.custom_files.add_file(path, file);
@@ -164,7 +170,7 @@ impl Datapack {
                 .or_insert_with(|| Cow::Owned(Namespace::new(&self.main_namespace_name)));
             let register_scoreboard_function = main_namespace
                 .to_mut()
-                .function_mut("shu/register_scoreboards");
+                .function_mut("sb/register_scoreboards");
             for (name, (criteria, display_name)) in &self.scoreboards {
                 let mut creation_command = format!(
                     "scoreboard objectives add {name} {criteria}",
@@ -189,7 +195,7 @@ impl Datapack {
                 .to_mut()
                 .tag_mut("load", tag::TagType::Function)
                 .add_value(tag::TagValue::Simple(format!(
-                    "{}:shu/register_scoreboards",
+                    "{}:sb/register_scoreboards",
                     self.main_namespace_name
                 )));
         }
