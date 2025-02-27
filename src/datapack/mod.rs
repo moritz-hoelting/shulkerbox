@@ -195,13 +195,15 @@ impl Datapack {
         }
 
         if let Some(uninstall_commands) = uninstall_commands {
-            let main_namespace = modified_namespaces
-                .entry(&self.main_namespace_name)
-                .or_insert_with(|| Cow::Owned(Namespace::new(&self.main_namespace_name)));
-            let uninstall_function = main_namespace.to_mut().function_mut("uninstall");
-            uninstall_function
-                .get_commands_mut()
-                .extend(uninstall_commands);
+            if !uninstall_commands.is_empty() {
+                let main_namespace = modified_namespaces
+                    .entry(&self.main_namespace_name)
+                    .or_insert_with(|| Cow::Owned(Namespace::new(&self.main_namespace_name)));
+                let uninstall_function = main_namespace.to_mut().function_mut("uninstall");
+                uninstall_function
+                    .get_commands_mut()
+                    .extend(uninstall_commands);
+            }
         }
 
         // Compile namespaces
