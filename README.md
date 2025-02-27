@@ -18,7 +18,7 @@ use shulkerbox::{
     util::compile::CompileOptions,
 };
 
-let mut dp = Datapack::new("shulkerpack", 20) // Create a new datapack with the name "shulkerpack" and the pack format 20
+let mut dp = Datapack::new("shulker", 20) // Create a new datapack with the name "shulkerpack" and the pack format 20
     .with_description("I created this datapack with rust") // Add a description to the datapack
     .with_supported_formats(16..=20) // Add the supported formats of the datapack
     .with_template_folder(Path::new("./template")) // Add a template folder to the datapack. This will include all files in the template folder in the root of the datapack and can be used for including the "pack.png" file

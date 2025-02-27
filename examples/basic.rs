@@ -5,10 +5,12 @@ use shulkerbox::prelude::*;
 
 fn main() {
     // create a new datapack
-    let mut dp = Datapack::new(16).with_supported_formats(16..=20);
+    let mut dp = Datapack::new("example", 16).with_supported_formats(16..=20);
 
-    // get the namespace "test"
-    let namespace = dp.namespace_mut("test");
+    dp.register_scoreboard("example_scoreboard", Some("dummy"), None);
+
+    // get the namespace "example"
+    let namespace = dp.namespace_mut("example");
 
     // get the function "foo" of the namespace "test" and add some commands
     let foo_function = namespace.function_mut("foo");
@@ -32,7 +34,7 @@ fn main() {
         )),
     )));
 
-    dp.add_load("test:foo");
+    dp.add_load("example:foo");
 
     // compile the datapack
     let v_folder = dp.compile(&CompileOptions::default());

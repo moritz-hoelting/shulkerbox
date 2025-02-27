@@ -8,7 +8,7 @@ pub use command::{Command, Condition, Execute};
 pub use function::Function;
 pub use namespace::Namespace;
 
-use std::{collections::HashMap, ops::RangeInclusive, sync::Mutex};
+use std::{borrow::Cow, collections::BTreeMap, ops::RangeInclusive, sync::Mutex};
 
 use crate::{
     util::compile::{CompileOptions, CompilerState, MutCompilerState},
@@ -23,7 +23,10 @@ pub struct Datapack {
     description: String,
     pack_format: u8,
     supported_formats: Option<RangeInclusive<u8>>,
-    namespaces: HashMap<String, Namespace>,
+    main_namespace_name: String,
+    namespaces: BTreeMap<String, Namespace>,
+    /// Scoreboard name -> (criteria, display name)
+    scoreboards: BTreeMap<String, (Option<String>, Option<String>)>,
     custom_files: VFolder,
 }
 
@@ -32,12 +35,14 @@ impl Datapack {
 
     /// Create a new Minecraft datapack.
     #[must_use]
-    pub fn new(pack_format: u8) -> Self {
+    pub fn new(main_namespace_name: impl Into<String>, pack_format: u8) -> Self {
         Self {
             description: String::from("A Minecraft datapack created with shulkerbox"),
             pack_format,
             supported_formats: None,
-            namespaces: HashMap::new(),
+            main_namespace_name: main_namespace_name.into(),
+            namespaces: BTreeMap::new(),
+            scoreboards: BTreeMap::new(),
             custom_files: VFolder::new(),
         }
     }
@@ -110,6 +115,19 @@ impl Datapack {
             .add_value(tag::TagValue::Simple(function.to_string()));
     }
 
+    /// Register a scoreboard.
+    pub fn register_scoreboard(
+        &mut self,
+        name: &str,
+        criteria: Option<&str>,
+        display_name: Option<&str>,
+    ) {
+        self.scoreboards.insert(
+            name.to_string(),
+            (criteria.map(String::from), display_name.map(String::from)),
+        );
+    }
+
     /// Add a custom file to the datapack.
     pub fn add_custom_file(&mut self, path: &str, file: VFile) {
         self.custom_files.add_file(path, file);
@@ -132,8 +150,62 @@ impl Datapack {
         root_folder.add_file("pack.mcmeta", mcmeta);
         let mut data_folder = VFolder::new();
 
+        let mut modified_namespaces = self
+            .namespaces
+            .iter()
+            .map(|(name, namespace)| (name.as_str(), Cow::Borrowed(namespace)))
+            .collect::<BTreeMap<_, _>>();
+
+        let mut uninstall_commands = options.uninstall_function.then(Vec::new);
+
+        if !self.scoreboards.is_empty() {
+            let main_namespace = modified_namespaces
+                .entry(&self.main_namespace_name)
+                .or_insert_with(|| Cow::Owned(Namespace::new(&self.main_namespace_name)));
+            let register_scoreboard_function = main_namespace
+                .to_mut()
+                .function_mut("shu/register_scoreboards");
+            for (name, (criteria, display_name)) in &self.scoreboards {
+                let mut creation_command = format!(
+                    "scoreboard objectives add {name} {criteria}",
+                    criteria = criteria.as_deref().unwrap_or("dummy")
+                );
+                if let Some(display_name) = display_name {
+                    creation_command.push(' ');
+                    creation_command.push_str(display_name);
+                }
+                register_scoreboard_function.add_command(Command::Raw(creation_command));
+
+                if let Some(uninstall_commands) = uninstall_commands.as_mut() {
+                    uninstall_commands
+                        .push(Command::Raw(format!("scoreboard objectives remove {name}")));
+                }
+            }
+
+            let minecraft_namespace = modified_namespaces
+                .entry("minecraft")
+                .or_insert_with(|| Cow::Owned(Namespace::new("minecraft")));
+            minecraft_namespace
+                .to_mut()
+                .tag_mut("load", tag::TagType::Function)
+                .add_value(tag::TagValue::Simple(format!(
+                    "{}:shu/register_scoreboards",
+                    self.main_namespace_name
+                )));
+        }
+
+        if let Some(uninstall_commands) = uninstall_commands {
+            let main_namespace = modified_namespaces
+                .entry(&self.main_namespace_name)
+                .or_insert_with(|| Cow::Owned(Namespace::new(&self.main_namespace_name)));
+            let uninstall_function = main_namespace.to_mut().function_mut("uninstall");
+            uninstall_function
+                .get_commands_mut()
+                .extend(uninstall_commands);
+        }
+
         // Compile namespaces
-        for (name, namespace) in &self.namespaces {
+        for (name, namespace) in modified_namespaces {
             let namespace_folder = namespace.compile(&options, &compiler_state);
             data_folder.add_existing_folder(name, namespace_folder);
         }
@@ -180,7 +252,7 @@ mod tests {
     fn test_datapack() {
         let template_dir = tempfile::tempdir().expect("error creating tempdir");
 
-        let mut dp = Datapack::new(Datapack::LATEST_FORMAT)
+        let mut dp = Datapack::new("main", Datapack::LATEST_FORMAT)
             .with_description("My datapack")
             .with_template_folder(template_dir.path())
             .expect("error reading template folder");
@@ -193,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_generate_mcmeta() {
-        let dp = &Datapack::new(Datapack::LATEST_FORMAT).with_description("foo");
+        let dp = &Datapack::new("main", Datapack::LATEST_FORMAT).with_description("foo");
         let state = Mutex::new(CompilerState::default());
         let mcmeta = generate_mcmeta(dp, &CompileOptions::default(), &state);
 

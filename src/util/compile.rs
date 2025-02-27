@@ -17,6 +17,8 @@ pub struct CompileOptions {
     pub(crate) pack_format: u8,
     /// Whether to compile in debug mode.
     pub(crate) debug: bool,
+    /// Whether to generate an uninstall function.
+    pub(crate) uninstall_function: bool,
 }
 
 impl CompileOptions {
@@ -25,6 +27,15 @@ impl CompileOptions {
     pub fn with_debug(self, debug: bool) -> Self {
         Self { debug, ..self }
     }
+
+    /// Set whether to generate an uninstall function.
+    #[must_use]
+    pub fn with_uninstall_function(self, uninstall_function: bool) -> Self {
+        Self {
+            uninstall_function,
+            ..self
+        }
+    }
 }
 
 impl Default for CompileOptions {
@@ -32,6 +43,7 @@ impl Default for CompileOptions {
         Self {
             pack_format: Datapack::LATEST_FORMAT,
             debug: true,
+            uninstall_function: true,
         }
     }
 }
