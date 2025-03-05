@@ -166,31 +166,7 @@ impl VFolder {
     where
         P: AsRef<std::path::Path>,
     {
-        use std::{fs, io::Write};
-
-        // open target file
-        let file = fs::File::create(path)?;
-        let mut writer = ZipWriter::new(file);
-        let virtual_files = self.flatten();
-
-        // write each file to the zip archive
-        for (path, file) in virtual_files {
-            writer.start_file(path, zip::write::SimpleFileOptions::default())?;
-            match file {
-                VFile::Text(text) => {
-                    writer.write_all(text.as_bytes())?;
-                }
-                VFile::Binary(data) => {
-                    writer.write_all(data)?;
-                }
-            }
-        }
-
-        writer.set_comment("Data pack created with Shulkerbox");
-
-        writer.finish()?;
-
-        Ok(())
+        self.zip_with_optional_comment(path.as_ref(), None)
     }
 
     /// Zip the folder and its contents into a zip archive with the given comment.
@@ -203,8 +179,20 @@ impl VFolder {
         P: AsRef<std::path::Path>,
         S: Into<String>,
     {
+        self.zip_with_optional_comment(path.as_ref(), Some(comment.into()))
+    }
+
+    #[cfg(all(feature = "fs_access", feature = "zip"))]
+    fn zip_with_optional_comment(
+        &self,
+        path: &std::path::Path,
+        comment: Option<String>,
+    ) -> std::io::Result<()> {
         use std::{fs, io::Write};
 
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         // open target file
         let file = fs::File::create(path)?;
         let mut writer = ZipWriter::new(file);
@@ -223,9 +211,10 @@ impl VFolder {
             }
         }
 
-        let comment: String = comment.into();
-        if !comment.is_empty() {
-            writer.set_comment(comment);
+        if let Some(comment) = comment {
+            if !comment.is_empty() {
+                writer.set_comment(comment);
+            }
         }
 
         writer.finish()?;
