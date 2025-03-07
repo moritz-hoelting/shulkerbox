@@ -25,11 +25,11 @@ pub struct Function {
 }
 
 impl Function {
-    pub(in crate::datapack) fn new(namespace: &str, name: &str) -> Self {
+    pub(in crate::datapack) fn new(namespace: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
             commands: Vec::new(),
-            name: name.to_string(),
-            namespace: namespace.to_string(),
+            name: name.into(),
+            namespace: namespace.into(),
         }
     }
     /// Add a command to the function.

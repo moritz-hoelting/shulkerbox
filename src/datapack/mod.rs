@@ -95,36 +95,37 @@ impl Datapack {
     }
 
     /// Mutably get a namespace by name or create a new one if it doesn't exist.
-    pub fn namespace_mut(&mut self, name: &str) -> &mut Namespace {
+    pub fn namespace_mut(&mut self, name: impl Into<String>) -> &mut Namespace {
+        let name = name.into();
         self.namespaces
-            .entry(name.to_string())
+            .entry(name.clone())
             .or_insert_with(|| Namespace::new(name))
     }
 
     /// Add a function to the tick function list.
-    pub fn add_tick(&mut self, function: &str) {
+    pub fn add_tick(&mut self, function: impl Into<String>) {
         self.namespace_mut("minecraft")
             .tag_mut("tick", tag::TagType::Function)
-            .add_value(tag::TagValue::Simple(function.to_string()));
+            .add_value(tag::TagValue::Simple(function.into()));
     }
 
     /// Add a function to the load function list.
-    pub fn add_load(&mut self, function: &str) {
+    pub fn add_load(&mut self, function: impl Into<String>) {
         self.namespace_mut("minecraft")
             .tag_mut("load", tag::TagType::Function)
-            .add_value(tag::TagValue::Simple(function.to_string()));
+            .add_value(tag::TagValue::Simple(function.into()));
     }
 
     /// Register a scoreboard.
     pub fn register_scoreboard(
         &mut self,
-        name: &str,
-        criteria: Option<&str>,
-        display_name: Option<&str>,
+        name: impl Into<String>,
+        criteria: Option<impl Into<String>>,
+        display_name: Option<impl Into<String>>,
     ) {
         self.scoreboards.insert(
-            name.to_string(),
-            (criteria.map(String::from), display_name.map(String::from)),
+            name.into(),
+            (criteria.map(Into::into), display_name.map(Into::into)),
         );
     }
 

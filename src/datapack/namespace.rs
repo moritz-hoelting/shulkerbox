@@ -28,9 +28,9 @@ pub struct Namespace {
 
 impl Namespace {
     /// Create a new namespace.
-    pub(in crate::datapack) fn new(name: &str) -> Self {
+    pub(in crate::datapack) fn new(name: impl Into<String>) -> Self {
         Self {
-            name: name.to_string(),
+            name: name.into(),
             functions: HashMap::new(),
             tags: HashMap::new(),
         }
@@ -62,23 +62,24 @@ impl Namespace {
 
     /// Mutably get a function by name or create a new one if it doesn't exist.
     #[must_use]
-    pub fn function_mut(&mut self, name: &str) -> &mut Function {
+    pub fn function_mut(&mut self, name: impl Into<String>) -> &mut Function {
+        let name = name.into();
         self.functions
-            .entry(name.to_string())
+            .entry(name.clone())
             .or_insert_with(|| Function::new(&self.name, name))
     }
 
     /// Get a tag by name and type.
     #[must_use]
-    pub fn tag(&self, name: &str, tag_type: TagType) -> Option<&Tag> {
-        self.tags.get(&(name.to_string(), tag_type))
+    pub fn tag(&self, name: impl Into<String>, tag_type: TagType) -> Option<&Tag> {
+        self.tags.get(&(name.into(), tag_type))
     }
 
     /// Mutably get a tag by name and type or create a new one if it doesn't exist.
     #[must_use]
-    pub fn tag_mut(&mut self, name: &str, tag_type: TagType) -> &mut Tag {
+    pub fn tag_mut(&mut self, name: impl Into<String>, tag_type: TagType) -> &mut Tag {
         self.tags
-            .entry((name.to_string(), tag_type))
+            .entry((name.into(), tag_type))
             .or_insert_with(|| Tag::new(false))
     }
 
