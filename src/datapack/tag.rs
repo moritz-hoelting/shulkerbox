@@ -37,8 +37,14 @@ impl Tag {
 
     /// Get the values of the tag.
     #[must_use]
-    pub fn get_values(&self) -> &Vec<TagValue> {
+    pub fn values(&self) -> &[TagValue] {
         &self.values
+    }
+
+    /// Get a mutable reference to the values of the tag.
+    #[must_use]
+    pub fn values_mut(&mut self) -> &mut Vec<TagValue> {
+        &mut self.values
     }
 
     /// Add a value to the tag.
@@ -186,7 +192,7 @@ mod tests {
             required: true,
         });
 
-        assert_eq!(tag.get_values().len(), 2);
+        assert_eq!(tag.values().len(), 2);
 
         let compiled = tag.compile(&CompileOptions::default(), &MutCompilerState::default());
 

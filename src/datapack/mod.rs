@@ -195,10 +195,14 @@ impl Datapack {
             minecraft_namespace
                 .to_mut()
                 .tag_mut("load", tag::TagType::Function)
-                .add_value(tag::TagValue::Simple(format!(
-                    "{}:sb/register_scoreboards",
-                    self.main_namespace_name
-                )));
+                .values_mut()
+                .insert(
+                    0,
+                    tag::TagValue::Simple(format!(
+                        "{}:sb/register_scoreboards",
+                        self.main_namespace_name
+                    )),
+                );
         }
 
         if let Some(uninstall_commands) = uninstall_commands {

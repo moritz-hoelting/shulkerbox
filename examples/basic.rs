@@ -7,7 +7,7 @@ fn main() {
     // create a new datapack
     let mut dp = Datapack::new("example", 16).with_supported_formats(16..=20);
 
-    dp.register_scoreboard("example_scoreboard", Some("dummy"), None);
+    dp.register_scoreboard("example_scoreboard", None::<&str>, None::<&str>);
 
     // get the namespace "example"
     let namespace = dp.namespace_mut("example");
