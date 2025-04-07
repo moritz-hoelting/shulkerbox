@@ -131,6 +131,7 @@ impl VFolder {
     /// # Errors
     /// - If the folder cannot be written
     #[cfg(feature = "fs_access")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "fs_access")))]
     pub fn place<P>(&self, path: P) -> std::io::Result<()>
     where
         P: AsRef<std::path::Path>,
@@ -162,6 +163,7 @@ impl VFolder {
     /// # Errors
     /// - If the zip archive cannot be written
     #[cfg(all(feature = "fs_access", feature = "zip"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "fs_access", feature = "zip"))))]
     pub fn zip<P>(&self, path: P) -> std::io::Result<()>
     where
         P: AsRef<std::path::Path>,
@@ -174,6 +176,7 @@ impl VFolder {
     /// # Errors
     /// - If the zip archive cannot be written
     #[cfg(all(feature = "fs_access", feature = "zip"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "fs_access", feature = "zip"))))]
     pub fn zip_with_comment<P, S>(&self, path: P, comment: S) -> std::io::Result<()>
     where
         P: AsRef<std::path::Path>,
@@ -246,14 +249,14 @@ impl VFolder {
     /// Recursively merge another folder into this folder.
     /// Returns a list of paths that were replaced by other.
     pub fn merge(&mut self, other: Self) -> Vec<String> {
-        self._merge(other, "")
+        self.merge_(other, "")
     }
 
-    fn _merge(&mut self, other: Self, prefix: &str) -> Vec<String> {
+    fn merge_(&mut self, other: Self, prefix: &str) -> Vec<String> {
         let mut replaced = Vec::new();
         for (name, folder) in other.folders {
             if let Some(existing_folder) = self.folders.get_mut(&name) {
-                let replaced_folder = existing_folder._merge(folder, &format!("{prefix}{name}/"));
+                let replaced_folder = existing_folder.merge_(folder, &format!("{prefix}{name}/"));
                 replaced.extend(replaced_folder);
             } else {
                 self.folders.insert(name, folder);
@@ -271,6 +274,7 @@ impl VFolder {
 }
 
 #[cfg(feature = "fs_access")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fs_access")))]
 impl TryFrom<&std::path::Path> for VFolder {
     type Error = std::io::Error;
 
@@ -374,6 +378,7 @@ impl From<&[u8]> for VFile {
 }
 
 #[cfg(feature = "fs_access")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fs_access")))]
 impl TryFrom<&std::path::Path> for VFile {
     type Error = std::io::Error;
 

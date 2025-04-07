@@ -363,8 +363,8 @@ fn validate_raw_cmd(cmd: &str, pack_formats: &RangeInclusive<u8>) -> bool {
         map
     });
 
-    cmd.split_ascii_whitespace().next().map_or(true, |cmd| {
-        cmd_formats.get(cmd).map_or(true, |range| {
+    cmd.split_ascii_whitespace().next().is_none_or(|cmd| {
+        cmd_formats.get(cmd).is_none_or(|range| {
             let start_cmd = range.start();
             let end_cmd = range.end();
 

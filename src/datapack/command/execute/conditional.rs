@@ -439,7 +439,7 @@ impl Condition {
     #[must_use]
     pub fn to_truth_table(&self) -> Vec<Self> {
         match self.normalize() {
-            Self::Atom(_) | Self::Not(_) => vec![self.clone()],
+            Self::Atom(_) | Self::Not(_) => vec![self.normalize()],
             Self::Or(a, b) => a
                 .to_truth_table()
                 .into_iter()
@@ -461,7 +461,7 @@ impl Condition {
 
     /// Convert the condition into a [`MacroString`].
     ///
-    /// Will fail if the condition contains an `Or` variant. Use `compile` instead.
+    /// Will fail if the condition contains an `Or` or double nested `Not` variant. Use `compile` instead.
     fn str_cond(&self) -> Option<MacroString> {
         match self {
             Self::Atom(s) => Some(MacroString::from("if ") + s.clone()),
