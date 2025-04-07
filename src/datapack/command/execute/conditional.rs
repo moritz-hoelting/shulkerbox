@@ -28,6 +28,8 @@ pub fn compile_if_cond(
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<CompiledCommand> {
+    // TODO: special handling for return command
+
     if options.pack_format < 20 {
         compile_pre_20_format(
             cond,

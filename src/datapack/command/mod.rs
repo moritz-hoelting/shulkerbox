@@ -36,6 +36,9 @@ pub enum Command {
     Group(Vec<Command>),
     /// Comment to be added to the function
     Comment(String),
+    /// Return value
+    Return(ReturnCommand),
+
     /// Command that is a concatenation of two commands
     Concat(Box<Command>, Box<Command>),
 }
@@ -65,6 +68,23 @@ impl Command {
             Self::Comment(comment) => {
                 vec![CompiledCommand::new("#".to_string() + comment).with_forbid_prefix(true)]
             }
+            Self::Return(return_cmd) => match return_cmd {
+                ReturnCommand::Value(value) => {
+                    vec![CompiledCommand::new(format!("return {}", value.compile()))]
+                }
+                ReturnCommand::Command(cmd) => {
+                    let compiled_cmd = Self::Group(vec![*cmd.clone()]).compile(
+                        options,
+                        global_state,
+                        function_state,
+                    );
+                    let compiled_cmd = compiled_cmd
+                        .into_iter()
+                        .next()
+                        .expect("group will always return exactly one command");
+                    vec![compiled_cmd.apply_prefix("return run ")]
+                }
+            },
             Self::Concat(a, b) => {
                 let a = a.compile(options, global_state, function_state);
                 let b = b.compile(options, global_state, function_state);
@@ -97,7 +117,7 @@ impl Command {
             Self::Raw(cmd) => cmd.split('\n').count(),
             Self::UsesMacro(cmd) => cmd.line_count(),
             Self::Execute(ex) => ex.get_count(options),
-            Self::Group(_) => 1,
+            Self::Group(_) | Self::Return(_) => 1,
             Self::Concat(a, b) => a.get_count(options) + b.get_count(options) - 1,
         }
     }
@@ -110,6 +130,12 @@ impl Command {
             Self::Raw(cmd) => validate_raw_cmd(cmd, pack_formats),
             Self::UsesMacro(cmd) => validate_raw_cmd(&cmd.compile(), pack_formats),
             Self::Execute(ex) => ex.validate(pack_formats),
+            Self::Return(ret) => match ret {
+                ReturnCommand::Value(_) => pack_formats.start() >= &14,
+                ReturnCommand::Command(cmd) => {
+                    pack_formats.start() >= &16 && cmd.validate(pack_formats)
+                }
+            },
             Self::Concat(a, b) => a.validate(pack_formats) && b.validate(pack_formats),
         };
         if pack_formats.start() < &16 {
@@ -127,6 +153,10 @@ impl Command {
             Self::UsesMacro(s) | Self::Debug(s) => s.contains_macro(),
             Self::Group(commands) => group_contains_macro(commands),
             Self::Execute(ex) => ex.contains_macro(),
+            Self::Return(ret) => match ret {
+                ReturnCommand::Value(value) => value.contains_macro(),
+                ReturnCommand::Command(cmd) => cmd.contains_macro(),
+            },
             Self::Concat(a, b) => a.contains_macro() || b.contains_macro(),
         }
     }
@@ -139,6 +169,10 @@ impl Command {
             Self::UsesMacro(s) | Self::Debug(s) => s.get_macros(),
             Self::Group(commands) => group_get_macros(commands),
             Self::Execute(ex) => ex.get_macros(),
+            Self::Return(ret) => match ret {
+                ReturnCommand::Value(value) => value.get_macros(),
+                ReturnCommand::Command(cmd) => cmd.get_macros(),
+            },
             Self::Concat(a, b) => {
                 let mut macros = a.get_macros();
                 macros.extend(b.get_macros());
@@ -154,6 +188,10 @@ impl Command {
             Self::Comment(_) => true,
             Self::Raw(_) | Self::Debug(_) | Self::Execute(_) | Self::UsesMacro(_) => false,
             Self::Group(commands) => commands.len() == 1 && commands[0].forbid_prefix(),
+            Self::Return(ret) => match ret {
+                ReturnCommand::Value(_) => false,
+                ReturnCommand::Command(cmd) => cmd.forbid_prefix(),
+            },
             Self::Concat(a, _) => a.forbid_prefix(),
         }
     }
@@ -173,6 +211,16 @@ impl From<&mut Function> for Command {
     fn from(value: &mut Function) -> Self {
         Self::Raw(format!("function {}:{}", value.namespace(), value.name()))
     }
+}
+
+/// Represents a command that returns a value.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ReturnCommand {
+    /// Returns the value
+    Value(MacroString),
+    /// Returns the result of the command
+    Command(Box<Command>),
 }
 
 fn compile_debug(message: &MacroString, option: &CompileOptions) -> Vec<CompiledCommand> {
