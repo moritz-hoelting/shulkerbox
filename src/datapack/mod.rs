@@ -27,11 +27,12 @@ pub struct Datapack {
     namespaces: BTreeMap<String, Namespace>,
     /// Scoreboard name -> (criteria, display name)
     scoreboards: BTreeMap<String, (Option<String>, Option<String>)>,
+    uninstall_commands: Vec<Command>,
     custom_files: VFolder,
 }
 
 impl Datapack {
-    pub const LATEST_FORMAT: u8 = 48;
+    pub const LATEST_FORMAT: u8 = 61;
 
     /// Create a new Minecraft datapack.
     #[must_use]
@@ -43,6 +44,7 @@ impl Datapack {
             main_namespace_name: main_namespace_name.into(),
             namespaces: BTreeMap::new(),
             scoreboards: BTreeMap::new(),
+            uninstall_commands: Vec::new(),
             custom_files: VFolder::new(),
         }
     }
@@ -70,6 +72,7 @@ impl Datapack {
     /// # Errors
     /// - If loading the directory fails
     #[cfg(feature = "fs_access")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "fs_access")))]
     pub fn with_template_folder<P>(self, path: P) -> std::io::Result<Self>
     where
         P: AsRef<std::path::Path>,
@@ -135,6 +138,11 @@ impl Datapack {
         &self.scoreboards
     }
 
+    /// Add commands to the uninstall function.
+    pub fn add_uninstall_commands(&mut self, commands: Vec<Command>) {
+        self.uninstall_commands.extend(commands);
+    }
+
     /// Add a custom file to the datapack.
     pub fn add_custom_file(&mut self, path: &str, file: VFile) {
         self.custom_files.add_file(path, file);
@@ -163,7 +171,9 @@ impl Datapack {
             .map(|(name, namespace)| (name.as_str(), Cow::Borrowed(namespace)))
             .collect::<BTreeMap<_, _>>();
 
-        let mut uninstall_commands = options.uninstall_function.then(Vec::new);
+        let mut uninstall_commands = options
+            .uninstall_function
+            .then_some(Cow::Borrowed(&self.uninstall_commands));
 
         if !self.scoreboards.is_empty() {
             let main_namespace = modified_namespaces
@@ -185,6 +195,7 @@ impl Datapack {
 
                 if let Some(uninstall_commands) = uninstall_commands.as_mut() {
                     uninstall_commands
+                        .to_mut()
                         .push(Command::Raw(format!("scoreboard objectives remove {name}")));
                 }
             }
@@ -213,7 +224,7 @@ impl Datapack {
                 let uninstall_function = main_namespace.to_mut().function_mut("uninstall");
                 uninstall_function
                     .get_commands_mut()
-                    .extend(uninstall_commands);
+                    .extend(uninstall_commands.into_owned());
             }
         }
 

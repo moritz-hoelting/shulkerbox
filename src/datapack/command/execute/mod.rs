@@ -234,7 +234,7 @@ impl Execute {
             Self::If(_, next, el) => {
                 pack_formats.start() >= &4
                     && next.validate(pack_formats)
-                    && el.as_deref().map_or(true, |el| el.validate(pack_formats))
+                    && el.as_deref().is_none_or(|el| el.validate(pack_formats))
             }
             Self::Summon(_, next) | Self::On(_, next) => {
                 pack_formats.start() >= &12 && next.validate(pack_formats)
@@ -261,7 +261,7 @@ impl Execute {
             Self::If(cond, then, el) => {
                 cond.contains_macro()
                     || then.contains_macro()
-                    || el.as_deref().map_or(false, Self::contains_macro)
+                    || el.as_deref().is_some_and(Self::contains_macro)
             }
             Self::Run(cmd) => cmd.contains_macro(),
             Self::Runs(cmds) => cmds.iter().any(super::Command::contains_macro),
