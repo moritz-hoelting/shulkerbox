@@ -98,7 +98,7 @@ mod tests {
     use super::*;
 
     use crate::util::compile::CompilerState;
-    use std::sync::Mutex;
+    use std::sync::RwLock;
 
     #[test]
     fn test_function() {
@@ -111,7 +111,7 @@ mod tests {
         assert_eq!(function.get_commands().len(), 1);
 
         let options = &CompileOptions::default();
-        let global_state = &Mutex::new(CompilerState::default());
+        let global_state = &RwLock::new(CompilerState::default());
         let function_state = &FunctionCompilerState::default();
 
         let compiled = function.compile(options, global_state, function_state);

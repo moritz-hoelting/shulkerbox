@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - support for commands using macros
 - support for registering scoreboards (automatic creation and deletion)
+- "return" command with special handling in groups and conditionals
 
 ### Changed
 - use "return" command for conditionals instead of data storage when using supported pack format

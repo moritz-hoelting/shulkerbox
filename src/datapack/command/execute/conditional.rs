@@ -28,10 +28,8 @@ pub fn compile_if_cond(
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<CompiledCommand> {
-    // TODO: special handling for return command
-
     if options.pack_format < 20 {
-        compile_pre_20_format(
+        compile_using_data_storage(
             cond,
             then,
             el,
@@ -56,7 +54,7 @@ pub fn compile_if_cond(
 }
 
 #[expect(clippy::too_many_lines, clippy::too_many_arguments)]
-fn compile_pre_20_format(
+fn compile_using_data_storage(
     cond: &Condition,
     then: &Execute,
     el: Option<&Execute>,
@@ -218,31 +216,45 @@ fn compile_since_20_format(
 
     // if the conditions have multiple parts joined by a disjunction or an else part, commands need to be grouped
     if el.is_some() || str_cond.len() > 1 {
-        let group_cmds = handle_return_group_case_since_20(
-            str_cond,
-            then,
-            el,
-            prefix,
-            options,
-            global_state,
-            function_state,
-        );
-        let group = Command::Group(group_cmds);
-        let cmds = group.compile(options, global_state, function_state);
-        if contains_macros {
-            cmds.into_iter()
-                .map(|cmd| cmd.or_contains_macros(true))
-                .collect()
+        // change to compilation using data storage when the conditional contains a return
+        if !then.contains_return() && !el.is_some_and(super::Execute::contains_return) {
+            let group_cmds = handle_return_group_case_since_20(
+                str_cond,
+                then,
+                el,
+                prefix,
+                options,
+                global_state,
+                function_state,
+            );
+            let group = Command::Group(group_cmds);
+            let cmds = group.compile(options, global_state, function_state);
+            if contains_macros {
+                cmds.into_iter()
+                    .map(|cmd| cmd.or_contains_macros(true))
+                    .collect()
+            } else {
+                cmds
+            }
         } else {
-            cmds
+            compile_using_data_storage(
+                cond,
+                then,
+                el,
+                prefix,
+                prefix_contains_macros,
+                options,
+                global_state,
+                function_state,
+            )
         }
     } else if then_count > 1 {
-        let then_cmd = match then.clone() {
+        let then_cmds = match then.clone() {
             Execute::Run(cmd) => vec![*cmd],
             Execute::Runs(cmds) => cmds,
             ex => vec![Command::Execute(ex)],
         };
-        let group_cmd = Command::Group(then_cmd);
+        let group_cmd = Command::Group(then_cmds);
         let then_cmd = if group_cmd.forbid_prefix() {
             group_cmd
         } else {

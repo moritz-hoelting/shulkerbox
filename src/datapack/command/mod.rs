@@ -68,23 +68,7 @@ impl Command {
             Self::Comment(comment) => {
                 vec![CompiledCommand::new("#".to_string() + comment).with_forbid_prefix(true)]
             }
-            Self::Return(return_cmd) => match return_cmd {
-                ReturnCommand::Value(value) => {
-                    vec![CompiledCommand::new(format!("return {}", value.compile()))]
-                }
-                ReturnCommand::Command(cmd) => {
-                    let compiled_cmd = Self::Group(vec![*cmd.clone()]).compile(
-                        options,
-                        global_state,
-                        function_state,
-                    );
-                    let compiled_cmd = compiled_cmd
-                        .into_iter()
-                        .next()
-                        .expect("group will always return exactly one command");
-                    vec![compiled_cmd.apply_prefix("return run ")]
-                }
-            },
+            Self::Return(return_cmd) => return_cmd.compile(options, global_state, function_state),
             Self::Concat(a, b) => {
                 let a = a.compile(options, global_state, function_state);
                 let b = b.compile(options, global_state, function_state);
@@ -195,6 +179,20 @@ impl Command {
             Self::Concat(a, _) => a.forbid_prefix(),
         }
     }
+
+    // Check whether the command contains a return command.
+    #[must_use]
+    pub fn contains_return(&self) -> bool {
+        match self {
+            Self::Comment(_) | Self::Debug(_) => false,
+            Self::Return(_) => true,
+            Self::Concat(a, b) => a.contains_return() || b.contains_return(),
+            Self::Execute(exec) => exec.contains_return(),
+            Self::Raw(cmd) => cmd.starts_with("return "),
+            Self::UsesMacro(m) => m.compile().starts_with("return "),
+            Self::Group(g) => g.iter().any(Self::contains_return),
+        }
+    }
 }
 
 impl From<&str> for Command {
@@ -250,19 +248,11 @@ fn compile_group(
         0 => Vec::new(),
         1 => commands[0].compile(options, global_state, function_state),
         _ => {
-            let uid = function_state.request_uid();
             let pass_macros = group_contains_macro(commands);
+            let contains_return = commands.iter().any(Command::contains_return);
 
             // calculate a hashed path for the function in the `sb` subfolder
-            let function_path = {
-                let function_path = function_state.path();
-                let function_path = function_path.strip_prefix("sb/").unwrap_or(function_path);
-
-                let pre_hash_path = function_path.to_owned() + ":" + &uid.to_string();
-                let hash = md5::hash(pre_hash_path).to_hex_lowercase();
-
-                "sb/".to_string() + function_path + "/" + &hash[..16]
-            };
+            let function_path = generate_group_function_path(function_state);
 
             let namespace = function_state.namespace();
 
@@ -272,6 +262,66 @@ fn compile_group(
             function_state.add_function(&function_path, function);
 
             let mut function_invocation = format!("function {namespace}:{function_path}");
+
+            let additional_return_cmds = if contains_return {
+                let full_path = format!("{namespace}:{function_path}");
+                let return_data_path = md5::hash(&full_path).to_hex_lowercase();
+
+                let pre_cmds = Command::Raw(format!(
+                    "data remove storage shulkerbox:return {return_data_path}"
+                ))
+                .compile(options, global_state, function_state)
+                .into_iter()
+                .map(|c| c.with_forbid_prefix(true))
+                .collect::<Vec<_>>();
+                let post_condition = Condition::Atom(
+                    format!("data storage shulkerbox:return {return_data_path}").into(),
+                );
+
+                let post_cmd_store = global_state
+                    .read()
+                    .unwrap()
+                    .functions_with_special_return
+                    .get(&format!(
+                        "{}:{}",
+                        function_state.namespace(),
+                        function_state.path()
+                    ))
+                    .cloned().map(|parent_return_data_path| {
+                        Command::Execute(Execute::If(
+                        post_condition.clone(),
+                        Box::new(Execute::Run(Box::new(Command::Raw(format!(
+                            "data modify storage shulkerbox:return {parent_return_data_path} set from storage shulkerbox:return {return_data_path}"
+                        ))))),
+                        None,
+                    ))
+                    });
+
+                let post_cmd_return = Command::Execute(Execute::If(
+                    post_condition,
+                    Box::new(Execute::Run(Box::new(Command::Raw(format!(
+                        "return run data get storage shulkerbox:return {return_data_path}"
+                    ))))),
+                    None,
+                ));
+
+                let post_cmds = post_cmd_store
+                    .into_iter()
+                    .chain(std::iter::once(post_cmd_return))
+                    .flat_map(|cmd| cmd.compile(options, global_state, function_state))
+                    .map(|c| c.with_forbid_prefix(true))
+                    .collect::<Vec<_>>();
+
+                global_state
+                    .write()
+                    .unwrap()
+                    .functions_with_special_return
+                    .insert(full_path, return_data_path);
+
+                Some((pre_cmds, post_cmds))
+            } else {
+                None
+            };
 
             if pass_macros {
                 // WARNING: this seems to be the only way to pass macros to the function called.
@@ -284,9 +334,28 @@ fn compile_group(
                 function_invocation.push_str(&format!(" {{{macros_block}}}"));
             }
 
-            vec![CompiledCommand::new(function_invocation).with_contains_macros(pass_macros)]
+            if let Some((mut pre_cmds, post_cmds)) = additional_return_cmds {
+                pre_cmds.push(
+                    CompiledCommand::new(function_invocation).with_contains_macros(pass_macros),
+                );
+                pre_cmds.extend(post_cmds);
+                pre_cmds
+            } else {
+                vec![CompiledCommand::new(function_invocation).with_contains_macros(pass_macros)]
+            }
         }
     }
+}
+
+fn generate_group_function_path(function_state: &FunctionCompilerState) -> String {
+    let uid = function_state.request_uid();
+    let function_path = function_state.path();
+    let function_path = function_path.strip_prefix("sb/").unwrap_or(function_path);
+
+    let pre_hash_path = function_path.to_owned() + ":" + &uid.to_string();
+    let hash = md5::hash(pre_hash_path).to_hex_lowercase();
+
+    "sb/".to_string() + function_path + "/" + &hash[..16]
 }
 
 fn group_contains_macro(commands: &[Command]) -> bool {
@@ -299,6 +368,66 @@ fn group_get_macros(commands: &[Command]) -> HashSet<&str> {
         macros.extend(cmd.get_macros());
     }
     macros
+}
+
+impl ReturnCommand {
+    pub fn compile(
+        &self,
+        options: &CompileOptions,
+        global_state: &MutCompilerState,
+        function_state: &FunctionCompilerState,
+    ) -> Vec<CompiledCommand> {
+        let return_data_path = global_state
+            .read()
+            .unwrap()
+            .functions_with_special_return
+            .get(&format!(
+                "{}:{}",
+                function_state.namespace(),
+                function_state.path()
+            ))
+            .cloned();
+        match (self, return_data_path) {
+            (Self::Value(value), None) => {
+                vec![CompiledCommand::new(format!("return {}", value.compile()))]
+            }
+            (Self::Value(value), Some(data_path)) => {
+                let value = value.compile();
+                let store_cmd = CompiledCommand::new(format!(
+                    "data modify storage shulkerbox:return {data_path} set value {value}",
+                ));
+                let return_cmd = CompiledCommand::new(format!("return {value}"));
+                vec![store_cmd, return_cmd]
+            }
+            (Self::Command(cmd), None) => {
+                let compiled_cmd = Command::Group(vec![*cmd.clone()]).compile(
+                    options,
+                    global_state,
+                    function_state,
+                );
+                let compiled_cmd = compiled_cmd
+                    .into_iter()
+                    .next()
+                    .expect("group will always return exactly one command");
+                vec![compiled_cmd.apply_prefix("return run ")]
+            }
+            (Self::Command(cmd), Some(data_path)) => {
+                let compiled_cmd = Command::Execute(Execute::Store(
+                    format!("result storage shulkerbox:return {data_path} int 1.0").into(),
+                    Box::new(Execute::Run(Box::new(Command::Group(vec![*cmd.clone()])))),
+                ))
+                .compile(options, global_state, function_state);
+                let compiled_cmd = compiled_cmd
+                    .into_iter()
+                    .next()
+                    .expect("group will always return exactly one command");
+                let return_cmd = CompiledCommand::new(format!(
+                    "return run data get storage shulkerbox:return {data_path} value"
+                ));
+                vec![compiled_cmd, return_cmd]
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -426,7 +555,7 @@ fn validate_raw_cmd(cmd: &str, pack_formats: &RangeInclusive<u8>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::RwLock;
 
     use crate::util::compile::CompilerState;
 
@@ -438,7 +567,7 @@ mod tests {
         let command_b = Command::raw("say foo bar");
 
         let options = &CompileOptions::default();
-        let global_state = &Mutex::new(CompilerState::default());
+        let global_state = &RwLock::new(CompilerState::default());
         let function_state = &FunctionCompilerState::default();
 
         assert_eq!(
@@ -458,7 +587,7 @@ mod tests {
         let comment = Command::Comment("this is a comment".to_string());
 
         let options = &CompileOptions::default();
-        let global_state = &Mutex::new(CompilerState::default());
+        let global_state = &RwLock::new(CompilerState::default());
         let function_state = &FunctionCompilerState::default();
 
         assert_eq!(

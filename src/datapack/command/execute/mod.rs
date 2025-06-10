@@ -296,6 +296,29 @@ impl Execute {
             Self::Runs(cmds) => cmds.iter().flat_map(|cmd| cmd.get_macros()).collect(),
         }
     }
+
+    /// Check if the execute command contains a return command
+    pub(crate) fn contains_return(&self) -> bool {
+        match self {
+            Self::Align(_, next)
+            | Self::Anchored(_, next)
+            | Self::As(_, next)
+            | Self::At(_, next)
+            | Self::AsAt(_, next)
+            | Self::Facing(_, next)
+            | Self::In(_, next)
+            | Self::On(_, next)
+            | Self::Positioned(_, next)
+            | Self::Rotated(_, next)
+            | Self::Store(_, next)
+            | Self::Summon(_, next) => next.contains_return(),
+            Self::If(_, then, el) => {
+                then.contains_return() || el.as_deref().is_some_and(Self::contains_return)
+            }
+            Self::Run(cmd) => cmd.contains_return(),
+            Self::Runs(cmds) => cmds.iter().any(super::Command::contains_return),
+        }
+    }
 }
 
 impl From<Execute> for Command {

@@ -8,7 +8,7 @@ pub use command::{Command, Condition, Execute, ReturnCommand};
 pub use function::Function;
 pub use namespace::Namespace;
 
-use std::{borrow::Cow, collections::BTreeMap, ops::RangeInclusive, sync::Mutex};
+use std::{borrow::Cow, collections::BTreeMap, ops::RangeInclusive, sync::RwLock};
 
 use crate::{
     util::compile::{CompileOptions, CompilerState, MutCompilerState},
@@ -158,7 +158,7 @@ impl Datapack {
             ..options.clone()
         };
 
-        let compiler_state = Mutex::new(CompilerState::default());
+        let compiler_state = RwLock::new(CompilerState::default());
 
         let mut root_folder = self.custom_files.clone();
         let mcmeta = generate_mcmeta(self, &options, &compiler_state);
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn test_generate_mcmeta() {
         let dp = &Datapack::new("main", Datapack::LATEST_FORMAT).with_description("foo");
-        let state = Mutex::new(CompilerState::default());
+        let state = RwLock::new(CompilerState::default());
         let mcmeta = generate_mcmeta(dp, &CompileOptions::default(), &state);
 
         let json = if let VFile::Text(text) = mcmeta {

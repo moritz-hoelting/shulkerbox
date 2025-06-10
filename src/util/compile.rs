@@ -1,6 +1,11 @@
 //! Compile options for the compiler.
 
-use std::{fmt::Display, ops::Deref, sync::Mutex};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    ops::Deref,
+    sync::{Mutex, RwLock},
+};
 
 use getset::Getters;
 
@@ -52,9 +57,12 @@ impl Default for CompileOptions {
 #[allow(missing_copy_implementations)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default)]
-pub struct CompilerState {}
+pub struct CompilerState {
+    /// Functions and their return value data path.
+    pub(crate) functions_with_special_return: HashMap<String, String>,
+}
 /// Mutex for the compiler state.
-pub type MutCompilerState = Mutex<CompilerState>;
+pub type MutCompilerState = RwLock<CompilerState>;
 
 /// State of the compiler for each function that can change during compilation.
 #[derive(Debug, Getters, Default)]
