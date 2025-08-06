@@ -4,7 +4,7 @@ mod execute;
 use std::{
     collections::{HashMap, HashSet},
     ops::RangeInclusive,
-    sync::OnceLock,
+    sync::LazyLock,
 };
 
 pub use execute::{Condition, Execute};
@@ -432,8 +432,7 @@ impl ReturnCommand {
 
 #[allow(clippy::too_many_lines)]
 fn validate_raw_cmd(cmd: &str, pack_formats: &RangeInclusive<u8>) -> bool {
-    static CMD_FORMATS: OnceLock<HashMap<&str, RangeInclusive<u8>>> = OnceLock::new();
-    let cmd_formats = CMD_FORMATS.get_or_init(|| {
+    static CMD_FORMATS: LazyLock<HashMap<&str, RangeInclusive<u8>>> = LazyLock::new(|| {
         const LATEST: u8 = Datapack::LATEST_FORMAT;
         const ANY: RangeInclusive<u8> = 0..=LATEST;
         const fn to(to: u8) -> RangeInclusive<u8> {
@@ -541,7 +540,7 @@ fn validate_raw_cmd(cmd: &str, pack_formats: &RangeInclusive<u8>) -> bool {
     });
 
     cmd.split_ascii_whitespace().next().is_none_or(|cmd| {
-        cmd_formats.get(cmd).is_none_or(|range| {
+        CMD_FORMATS.get(cmd).is_none_or(|range| {
             let start_cmd = range.start();
             let end_cmd = range.end();
 
