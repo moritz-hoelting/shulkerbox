@@ -1,9 +1,12 @@
 use std::{collections::HashSet, ops::RangeInclusive, string::ToString};
 
 use super::Command;
-use crate::util::{
-    compile::{CompileOptions, CompiledCommand, FunctionCompilerState, MutCompilerState},
-    ExtendableQueue, MacroString,
+use crate::{
+    datapack::command::Group,
+    util::{
+        compile::{CompileOptions, CompiledCommand, FunctionCompilerState, MutCompilerState},
+        ExtendableQueue, MacroString,
+    },
 };
 
 mod conditional;
@@ -162,7 +165,7 @@ impl Execute {
                 })
                 .collect(),
             Self::Runs(commands) => {
-                let group = Command::Group(commands.clone());
+                let group = Command::Group(Group::new(commands.clone()));
                 group
                     .compile(options, global_state, function_state)
                     .into_iter()

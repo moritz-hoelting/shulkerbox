@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    datapack::command::Group,
     prelude::Command,
     util::{
         compile::{CompileOptions, CompiledCommand, FunctionCompilerState, MutCompilerState},
@@ -78,7 +79,7 @@ fn compile_using_data_storage(
     #[allow(clippy::option_if_let_else)]
     let then = if let Some(success_uid) = require_grouping_uid.as_deref() {
         // prepare commands for grouping
-        let mut group_cmd = match then.clone() {
+        let mut group_cmds = match then.clone() {
             Execute::Run(cmd) => vec![*cmd],
             Execute::Runs(cmds) => cmds,
             ex => vec![Command::Execute(ex)],
@@ -86,13 +87,13 @@ fn compile_using_data_storage(
         // add success condition to the group
         // this condition will be checked after the group ran to determine if the else part should be executed
         if el.is_some() && str_cond.len() <= 1 {
-            group_cmd.push(
+            group_cmds.push(
                 format!("data modify storage shulkerbox:cond {success_uid} set value true")
                     .as_str()
                     .into(),
             );
         }
-        let group = Command::Group(group_cmd);
+        let group = Command::Group(Group::new(group_cmds));
         let allows_prefix = !group.forbid_prefix();
         group
             .compile(options, global_state, function_state)
@@ -227,7 +228,7 @@ fn compile_since_20_format(
                 global_state,
                 function_state,
             );
-            let group = Command::Group(group_cmds);
+            let group = Command::Group(Group::new(group_cmds));
             let cmds = group.compile(options, global_state, function_state);
             if contains_macros {
                 cmds.into_iter()
@@ -254,7 +255,7 @@ fn compile_since_20_format(
             Execute::Runs(cmds) => cmds,
             ex => vec![Command::Execute(ex)],
         };
-        let group_cmd = Command::Group(then_cmds);
+        let group_cmd = Command::Group(Group::new(then_cmds));
         let then_cmd = if group_cmd.forbid_prefix() {
             group_cmd
         } else {
@@ -346,7 +347,7 @@ fn handle_return_group_case_since_20(
         Execute::Runs(cmds) => cmds,
         ex => vec![Command::Execute(ex)],
     };
-    let group = Command::Group(then_cmd);
+    let group = Command::Group(Group::new(then_cmd));
     let then_cmd_concat = if group.forbid_prefix() {
         group
     } else {

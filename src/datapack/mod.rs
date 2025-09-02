@@ -4,7 +4,7 @@ mod command;
 mod function;
 mod namespace;
 pub mod tag;
-pub use command::{Command, Condition, Execute, ReturnCommand};
+pub use command::{Command, Condition, Execute, Group, ReturnCommand};
 pub use function::Function;
 pub use namespace::Namespace;
 
@@ -32,7 +32,7 @@ pub struct Datapack {
 }
 
 impl Datapack {
-    pub const LATEST_FORMAT: u8 = 61;
+    pub const LATEST_FORMAT: u8 = 81;
 
     /// Create a new Minecraft datapack.
     #[must_use]
