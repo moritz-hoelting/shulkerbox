@@ -241,19 +241,19 @@ impl Group {
     }
 
     #[must_use]
-    pub fn always_create_function(mut self, always_create_function: bool) -> Self {
+    pub fn with_always_create_function(mut self, always_create_function: bool) -> Self {
         self.always_create_function = always_create_function;
         self
     }
 
     #[must_use]
-    pub fn block_pass_macros(mut self, block: HashSet<String>) -> Self {
+    pub fn with_block_pass_macros(mut self, block: HashSet<String>) -> Self {
         self.block_pass_macros = Some(block);
         self
     }
 
     #[must_use]
-    pub fn data_storage_name(mut self, name: String) -> Self {
+    pub fn with_data_storage_name(mut self, name: String) -> Self {
         self.data_storage_name = Some(name);
         self
     }
@@ -428,17 +428,50 @@ impl Group {
         }
     }
 
+    /// Get a reference to the commands in the group.
+    #[must_use]
+    pub fn commands(&self) -> &[Command] {
+        &self.commands
+    }
+
+    /// Get a mutable reference to the commands in the group.
+    #[must_use]
+    pub fn commands_mut(&mut self) -> &mut Vec<Command> {
+        &mut self.commands
+    }
+
+    /// Get whether to always create a function for this group.
+    #[must_use]
+    pub fn always_create_function(&self) -> bool {
+        self.always_create_function
+    }
+
+    /// Get the optional data storage name.
+    #[must_use]
+    pub fn data_storage_name(&self) -> Option<&String> {
+        self.data_storage_name.as_ref()
+    }
+
+    /// Get the optional set of blocked macros.
+    #[must_use]
+    pub fn block_pass_macros(&self) -> Option<&HashSet<String>> {
+        self.block_pass_macros.as_ref()
+    }
+
     /// Check whether the group contains a macro.
+    #[must_use]
     pub fn contains_macro(&self) -> bool {
         self.commands.iter().any(Command::contains_macro)
     }
 
     /// Check whether the group contains a return command.
+    #[must_use]
     pub fn contains_return(&self) -> bool {
         self.commands.iter().any(Command::contains_return)
     }
 
     /// Generate a unique function path based on the function state.
+    #[must_use]
     fn generate_function_path(function_state: &FunctionCompilerState) -> String {
         let uid = function_state.request_uid();
         let function_path = function_state.path();
@@ -598,7 +631,7 @@ impl ReturnCommand {
                     global_state,
                     function_state,
                 );
-                let compiled_cmd = dbg!(compiled_cmd)
+                let compiled_cmd = compiled_cmd
                     .into_iter()
                     .next()
                     .expect("group will always return exactly one command");
