@@ -65,7 +65,7 @@ fn compile_using_data_storage(
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<CompiledCommand> {
-    let contains_macro = prefix_contains_macros || cond.contains_macro();
+    let contains_macro = prefix_contains_macros || cond.contains_macros();
     let then_count = then.get_count(options);
 
     let str_cond = cond.clone().compile(options, global_state, function_state);
@@ -208,7 +208,7 @@ fn compile_since_20_format(
     global_state: &MutCompilerState,
     function_state: &FunctionCompilerState,
 ) -> Vec<CompiledCommand> {
-    let contains_macros = prefix_contains_macros || cond.contains_macro();
+    let contains_macros = prefix_contains_macros || cond.contains_macros();
     let then_count = then.get_count(options);
 
     let str_cond = cond
@@ -321,7 +321,7 @@ fn combine_conditions_commands_concat(
         conditions
             .into_iter()
             .map(|cond| {
-                let prefix = if cond.contains_macro() {
+                let prefix = if cond.contains_macros() {
                     Command::UsesMacro(cond + " ")
                 } else {
                     Command::Raw(cond.compile() + " ")
@@ -474,6 +474,15 @@ impl Condition {
         }
     }
 
+    #[must_use]
+    pub fn get_count(&self) -> usize {
+        match self.normalize() {
+            Self::Atom(_) | Self::Not(_) => 1,
+            Self::Or(a, b) => a.get_count() + b.get_count(),
+            Self::And(a, b) => a.get_count() * b.get_count(),
+        }
+    }
+
     /// Convert the condition into a [`MacroString`].
     ///
     /// Will fail if the condition contains an `Or` or double nested `Not` variant. Use `compile` instead.
@@ -527,11 +536,11 @@ impl Condition {
 
     /// Check whether the condition contains a macro.
     #[must_use]
-    pub fn contains_macro(&self) -> bool {
+    pub fn contains_macros(&self) -> bool {
         match self {
-            Self::Atom(s) => s.contains_macro(),
-            Self::Not(n) => n.contains_macro(),
-            Self::And(a, b) | Self::Or(a, b) => a.contains_macro() || b.contains_macro(),
+            Self::Atom(s) => s.contains_macros(),
+            Self::Not(n) => n.contains_macros(),
+            Self::And(a, b) | Self::Or(a, b) => a.contains_macros() || b.contains_macros(),
         }
     }
 

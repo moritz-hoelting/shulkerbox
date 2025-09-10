@@ -65,7 +65,7 @@ impl Function {
             .flat_map(|c| {
                 let cmds = c.compile(options, global_state, function_state);
 
-                if c.contains_macro() {
+                if c.contains_macros() {
                     cmds.into_iter()
                         .map(|c| {
                             if c.contains_macros() {

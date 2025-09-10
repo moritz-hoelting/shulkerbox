@@ -19,7 +19,7 @@ pub enum MacroStringPart {
 impl MacroString {
     /// Returns whether the [`MacroString`] contains any macro usages
     #[must_use]
-    pub fn contains_macro(&self) -> bool {
+    pub fn contains_macros(&self) -> bool {
         match self {
             Self::String(_) => false,
             Self::MacroString(parts) => !parts
@@ -44,6 +44,40 @@ impl MacroString {
                 .map(|p| p.as_str())
                 .collect::<Vec<_>>()
                 .join(""),
+        }
+    }
+
+    #[must_use]
+    pub fn normalize(self) -> Self {
+        match self {
+            Self::String(_) => self,
+            Self::MacroString(parts) => {
+                let mut normalized_parts = Vec::new();
+
+                for part in parts {
+                    match part {
+                        MacroStringPart::String(s) => {
+                            if let Some(MacroStringPart::String(last)) = normalized_parts.last_mut()
+                            {
+                                last.push_str(&s);
+                            } else if !s.is_empty() {
+                                normalized_parts.push(MacroStringPart::String(s));
+                            }
+                        }
+                        MacroStringPart::MacroUsage(m) => {
+                            normalized_parts.push(MacroStringPart::MacroUsage(m));
+                        }
+                    }
+                }
+
+                if normalized_parts.len() == 1 {
+                    if let MacroStringPart::String(s) = &normalized_parts[0] {
+                        return Self::String(s.clone());
+                    }
+                }
+
+                Self::MacroString(normalized_parts)
+            }
         }
     }
 

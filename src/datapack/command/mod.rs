@@ -17,7 +17,7 @@ use crate::{
     prelude::Datapack,
     util::{
         compile::{CompileOptions, CompiledCommand, FunctionCompilerState, MutCompilerState},
-        MacroString,
+        CommandCollection, MacroString, MacroStringPart,
     },
 };
 
@@ -39,6 +39,8 @@ pub enum Command {
     Comment(String),
     /// Return value
     Return(ReturnCommand),
+    /// While loop
+    While(While),
 
     /// Command that is a concatenation of two commands
     Concat(Box<Command>, Box<Command>),
@@ -70,6 +72,8 @@ impl Command {
                 vec![CompiledCommand::new("#".to_string() + comment).with_forbid_prefix(true)]
             }
             Self::Return(return_cmd) => return_cmd.compile(options, global_state, function_state),
+            Self::While(while_cmd) => while_cmd.compile(options, global_state, function_state),
+
             Self::Concat(a, b) => {
                 let a = a.compile(options, global_state, function_state);
                 let b = b.compile(options, global_state, function_state);
@@ -104,6 +108,8 @@ impl Command {
             Self::Execute(ex) => ex.get_count(options),
             Self::Group(group) => group.get_count(options),
             Self::Return(_) => 1,
+            Self::While(while_cmd) => while_cmd.get_count(options),
+
             Self::Concat(a, b) => a.get_count(options) + b.get_count(options) - 1,
         }
     }
@@ -112,7 +118,7 @@ impl Command {
     #[must_use]
     pub fn validate(&self, pack_formats: &RangeInclusive<u8>) -> bool {
         let command_valid = match self {
-            Self::Comment(_) | Self::Debug(_) | Self::Group(_) => true,
+            Self::Comment(_) | Self::Debug(_) | Self::Group(_) | Self::While(_) => true,
             Self::Raw(cmd) => validate_raw_cmd(cmd, pack_formats),
             Self::UsesMacro(cmd) => validate_raw_cmd(&cmd.compile(), pack_formats),
             Self::Execute(ex) => ex.validate(pack_formats),
@@ -122,10 +128,11 @@ impl Command {
                     pack_formats.start() >= &16 && cmd.validate(pack_formats)
                 }
             },
+
             Self::Concat(a, b) => a.validate(pack_formats) && b.validate(pack_formats),
         };
         if pack_formats.start() < &16 {
-            command_valid && !self.contains_macro()
+            command_valid && !self.contains_macros()
         } else {
             command_valid
         }
@@ -133,17 +140,19 @@ impl Command {
 
     /// Check whether the command contains a macro.
     #[must_use]
-    pub fn contains_macro(&self) -> bool {
+    pub fn contains_macros(&self) -> bool {
         match self {
             Self::Raw(_) | Self::Comment(_) => false,
-            Self::UsesMacro(s) | Self::Debug(s) => s.contains_macro(),
-            Self::Group(group) => group.contains_macro(),
-            Self::Execute(ex) => ex.contains_macro(),
+            Self::UsesMacro(s) | Self::Debug(s) => s.contains_macros(),
+            Self::Group(group) => group.contains_macros(),
+            Self::Execute(ex) => ex.contains_macros(),
             Self::Return(ret) => match ret {
-                ReturnCommand::Value(value) => value.contains_macro(),
-                ReturnCommand::Command(cmd) => cmd.contains_macro(),
+                ReturnCommand::Value(value) => value.contains_macros(),
+                ReturnCommand::Command(cmd) => cmd.contains_macros(),
             },
-            Self::Concat(a, b) => a.contains_macro() || b.contains_macro(),
+            Self::While(while_cmd) => while_cmd.contains_macros(),
+
+            Self::Concat(a, b) => a.contains_macros() || b.contains_macros(),
         }
     }
 
@@ -159,6 +168,8 @@ impl Command {
                 ReturnCommand::Value(value) => value.get_macros(),
                 ReturnCommand::Command(cmd) => cmd.get_macros(),
             },
+            Self::While(while_cmd) => while_cmd.get_macros(),
+
             Self::Concat(a, b) => {
                 let mut macros = a.get_macros();
                 macros.extend(b.get_macros());
@@ -172,12 +183,17 @@ impl Command {
     pub fn forbid_prefix(&self) -> bool {
         match self {
             Self::Comment(_) => true,
-            Self::Raw(_) | Self::Debug(_) | Self::Execute(_) | Self::UsesMacro(_) => false,
+            Self::Raw(_)
+            | Self::Debug(_)
+            | Self::Execute(_)
+            | Self::UsesMacro(_)
+            | Self::While(_) => false,
             Self::Group(group) => group.forbid_prefix(),
             Self::Return(ret) => match ret {
                 ReturnCommand::Value(_) => false,
                 ReturnCommand::Command(cmd) => cmd.forbid_prefix(),
             },
+
             Self::Concat(a, _) => a.forbid_prefix(),
         }
     }
@@ -188,11 +204,13 @@ impl Command {
         match self {
             Self::Comment(_) | Self::Debug(_) => false,
             Self::Return(_) => true,
-            Self::Concat(a, b) => a.contains_return() || b.contains_return(),
             Self::Execute(exec) => exec.contains_return(),
             Self::Raw(cmd) => cmd.starts_with("return "),
             Self::UsesMacro(m) => m.compile().starts_with("return "),
             Self::Group(g) => g.contains_return(),
+            Self::While(w) => w.contains_return(),
+
+            Self::Concat(a, b) => a.contains_return() || b.contains_return(),
         }
     }
 }
@@ -210,6 +228,24 @@ impl From<&Function> for Command {
 impl From<&mut Function> for Command {
     fn from(value: &mut Function) -> Self {
         Self::Raw(format!("function {}:{}", value.namespace(), value.name()))
+    }
+}
+
+impl From<ReturnCommand> for Command {
+    fn from(value: ReturnCommand) -> Self {
+        Self::Return(value)
+    }
+}
+
+impl From<Group> for Command {
+    fn from(value: Group) -> Self {
+        Self::Group(value)
+    }
+}
+
+impl From<While> for Command {
+    fn from(value: While) -> Self {
+        Self::While(value)
     }
 }
 
@@ -279,25 +315,40 @@ impl Group {
                 self.commands[0].compile(options, global_state, function_state)
             }
             _ => {
-                let pass_macros = self.contains_macro();
-                let contains_return = self.contains_return();
+                let commands = &self.commands;
+                let block_pass_macros = self.block_pass_macros.as_ref();
+                let macro_data_storage_name = self.data_storage_name.as_deref();
 
                 // calculate a hashed path for the function in the `sb` subfolder
-                let function_path = Self::generate_function_path(function_state);
+                let function_path = generate_group_function_path(function_state);
 
                 let namespace = function_state.namespace();
 
-                // create a new function with the commands
-                let mut function = Function::new(namespace, &function_path);
-                function
-                    .get_commands_mut()
-                    .extend(self.commands.iter().cloned());
-                function_state.add_function(&function_path, function);
+                let contained_macros = {
+                    let mut macros = HashSet::new();
+                    for cmd in commands {
+                        macros.extend(cmd.get_macros());
+                    }
+                    macros
+                };
+                let (prepare_data_storage, function_invocation) = get_group_invocation_commands(
+                    &function_path,
+                    namespace,
+                    commands,
+                    &contained_macros,
+                    block_pass_macros,
+                    macro_data_storage_name,
+                );
 
-                let mut function_invocation = format!("function {namespace}:{function_path}");
+                create_group_function(&function_path, commands, function_state);
+
+                let contains_return = commands.contains_return();
 
                 let additional_return_cmds = if contains_return {
-                    let full_path = format!("{namespace}:{function_path}");
+                    let full_path = format!(
+                        "{namespace}:{function_path}",
+                        namespace = function_state.namespace()
+                    );
                     let return_data_path = md5::hash(&full_path).to_hex_lowercase();
 
                     let pre_cmds = Command::Raw(format!(
@@ -312,23 +363,23 @@ impl Group {
                     );
 
                     let post_cmd_store = global_state
-                    .read()
-                    .unwrap()
-                    .functions_with_special_return
-                    .get(&format!(
-                        "{}:{}",
-                        function_state.namespace(),
-                        function_state.path()
-                    ))
-                    .cloned().map(|parent_return_data_path| {
-                        Command::Execute(Execute::If(
-                        post_condition.clone(),
-                        Box::new(Execute::Run(Box::new(Command::Raw(format!(
-                            "data modify storage shulkerbox:return {parent_return_data_path} set from storage shulkerbox:return {return_data_path}"
-                        ))))),
-                        None,
-                    ))
-                    });
+                        .read()
+                        .unwrap()
+                        .functions_with_special_return
+                        .get(&format!(
+                            "{}:{}",
+                            function_state.namespace(),
+                            function_state.path()
+                        ))
+                        .cloned().map(|parent_return_data_path| {
+                            Command::Execute(Execute::If(
+                            post_condition.clone(),
+                            Box::new(Execute::Run(Box::new(Command::Raw(format!(
+                                "data modify storage shulkerbox:return {parent_return_data_path} set from storage shulkerbox:return {return_data_path}"
+                            ))))),
+                            None,
+                        ))
+                        });
 
                     let post_cmd_return = Command::Execute(Execute::If(
                         post_condition,
@@ -356,72 +407,26 @@ impl Group {
                     None
                 };
 
-                let prepare_data_storage = if pass_macros {
-                    let contained_macros = self.get_macros();
-                    let not_all_macros_blocked = self
-                        .block_pass_macros
-                        .as_ref()
-                        .is_none_or(|b| contained_macros.iter().any(|&m| !b.contains(m)));
-
-                    if !contained_macros.is_empty()
-                        && (self.data_storage_name.is_some() || not_all_macros_blocked)
-                    {
-                        use std::fmt::Write as _;
-
-                        // WARNING: this seems to be the only way to pass macros to the function called.
-                        // Because everything is passed as a string, it looses one "level" of escaping per pass.
-                        let macros_block = self
-                            .get_macros()
-                            .into_iter()
-                            .filter(|&m| {
-                                self.block_pass_macros
-                                    .as_ref()
-                                    .is_none_or(|b| !b.contains(m))
-                            })
-                            .map(|m| format!(r#"{m}:"$({m})""#))
-                            .collect::<Vec<_>>()
-                            .join(",");
-
-                        if let Some(data_storage_name) = self.data_storage_name.as_deref() {
-                            let _ =
-                                write!(function_invocation, " with storage {data_storage_name}");
-
-                            not_all_macros_blocked.then(|| {
-                                CompiledCommand::new(format!(
-                                    "data merge storage {data_storage_name} {{{macros_block}}}"
-                                ))
-                                .with_contains_macros(true)
-                            })
-                        } else {
-                            let _ = write!(function_invocation, " {{{macros_block}}}");
-
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
                 if let Some((mut pre_cmds, post_cmds)) = additional_return_cmds {
                     if let Some(prepare_datastorage_cmd) = prepare_data_storage {
-                        pre_cmds.push(prepare_datastorage_cmd);
+                        pre_cmds.extend(prepare_datastorage_cmd.compile(
+                            options,
+                            global_state,
+                            function_state,
+                        ));
                     }
-                    pre_cmds.push(
-                        CompiledCommand::new(function_invocation)
-                            .with_contains_macros(pass_macros && self.data_storage_name.is_none()),
-                    );
+                    pre_cmds.extend(function_invocation.compile(
+                        options,
+                        global_state,
+                        function_state,
+                    ));
                     pre_cmds.extend(post_cmds);
                     pre_cmds
                 } else {
                     prepare_data_storage
                         .into_iter()
-                        .chain(std::iter::once(
-                            CompiledCommand::new(function_invocation).with_contains_macros(
-                                pass_macros && self.data_storage_name.is_none(),
-                            ),
-                        ))
+                        .flat_map(|prep| prep.compile(options, global_state, function_state))
+                        .chain(function_invocation.compile(options, global_state, function_state))
                         .collect()
                 }
             }
@@ -460,27 +465,14 @@ impl Group {
 
     /// Check whether the group contains a macro.
     #[must_use]
-    pub fn contains_macro(&self) -> bool {
-        self.commands.iter().any(Command::contains_macro)
+    pub fn contains_macros(&self) -> bool {
+        self.commands.contains_macros()
     }
 
     /// Check whether the group contains a return command.
     #[must_use]
     pub fn contains_return(&self) -> bool {
-        self.commands.iter().any(Command::contains_return)
-    }
-
-    /// Generate a unique function path based on the function state.
-    #[must_use]
-    fn generate_function_path(function_state: &FunctionCompilerState) -> String {
-        let uid = function_state.request_uid();
-        let function_path = function_state.path();
-        let function_path = function_path.strip_prefix("sb/").unwrap_or(function_path);
-
-        let pre_hash_path = function_path.to_owned() + ":" + &uid.to_string();
-        let hash = md5::hash(pre_hash_path).to_hex_lowercase();
-
-        "sb/".to_string() + function_path + "/" + &hash[..16]
+        self.commands.contains_return()
     }
 
     /// Returns the names of the macros used
@@ -512,7 +504,7 @@ impl Group {
             0 if !self.always_create_function => 0,
             1 if !self.always_create_function => 1,
             _ => {
-                let pass_macros = self.contains_macro();
+                let pass_macros = self.contains_macros();
                 let contains_return = self.contains_return();
 
                 let additional_return_cmds = if contains_return {
@@ -573,6 +565,101 @@ impl Hash for Group {
             block_vec.hash(state);
         }
     }
+}
+
+fn get_group_invocation_commands(
+    function_path: &str,
+    namespace: &str,
+    commands: &[Command],
+    contained_macros: &HashSet<&str>,
+    block_pass_macros: Option<&HashSet<String>>,
+    macro_data_storage_name: Option<&str>,
+) -> (Option<Command>, Command) {
+    use std::fmt::Write as _;
+
+    let mut function_invocation = format!("function {namespace}:{function_path}");
+
+    if commands.contains_macros() {
+        // WARNING: this seems to be the only way to pass macros to the function called.
+        // Because everything is passed as a string, it looses one "level" of escaping per pass.
+        let mut macros_parts = contained_macros
+            .iter()
+            .filter(|&&m| block_pass_macros.is_none_or(|b| !b.contains(m)))
+            .flat_map(|&m| {
+                vec![
+                    MacroStringPart::String(format!(r#"{m}:""#)),
+                    MacroStringPart::MacroUsage(m.to_string()),
+                    MacroStringPart::String(r#"""#.to_string()),
+                ]
+            })
+            .fold(Vec::new(), |mut acc, part| {
+                if !acc.is_empty() {
+                    acc.push(MacroStringPart::String(",".to_string()));
+                }
+
+                acc.push(part);
+
+                acc
+            });
+
+        if let Some(data_storage_name) = macro_data_storage_name {
+            let _ = write!(function_invocation, " with storage {data_storage_name}");
+
+            let not_all_macros_blocked =
+                block_pass_macros.is_none_or(|b| contained_macros.iter().any(|&m| !b.contains(m)));
+
+            if not_all_macros_blocked {
+                macros_parts.insert(
+                    0,
+                    MacroStringPart::String(format!("data merge storage {data_storage_name} {{")),
+                );
+                macros_parts.push(MacroStringPart::String("}".to_string()));
+                let macro_string = MacroString::MacroString(macros_parts).normalize();
+
+                (
+                    Some(Command::UsesMacro(macro_string)),
+                    Command::Raw(function_invocation),
+                )
+            } else {
+                (None, Command::Raw(function_invocation))
+            }
+        } else {
+            let _ = write!(function_invocation, " {{");
+            macros_parts.insert(0, MacroStringPart::String(function_invocation));
+            macros_parts.push(MacroStringPart::String("}".to_string()));
+
+            let macro_string = MacroString::MacroString(macros_parts).normalize();
+
+            (None, Command::UsesMacro(macro_string))
+        }
+    } else {
+        (None, Command::Raw(function_invocation))
+    }
+}
+
+fn create_group_function(
+    function_path: &str,
+    commands: &[Command],
+    function_state: &FunctionCompilerState,
+) {
+    let namespace = function_state.namespace();
+
+    // create a new function with the commands
+    let mut function = Function::new(namespace, function_path);
+    function.get_commands_mut().extend(commands.iter().cloned());
+    function_state.add_function(function_path, function);
+}
+
+#[must_use]
+fn generate_group_function_path(function_state: &FunctionCompilerState) -> String {
+    let uid = function_state.request_uid();
+    let function_path = function_state.path();
+    let function_path = function_path.strip_prefix("sb/").unwrap_or(function_path);
+
+    let pre_hash_path = function_path.to_owned() + ":" + &uid.to_string();
+    let hash = md5::hash(pre_hash_path).to_hex_lowercase();
+
+    "sb/".to_string() + function_path + "/" + &hash[..16]
 }
 
 /// Represents a command that returns a value.
@@ -655,6 +742,104 @@ impl ReturnCommand {
                 vec![compiled_cmd, return_cmd]
             }
         }
+    }
+}
+
+/// Loops the commands while a condition is true.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct While {
+    condition: Condition,
+    commands: Vec<Command>,
+}
+
+impl While {
+    pub fn new(condition: impl Into<Condition>, commands: Vec<Command>) -> Self {
+        Self {
+            condition: condition.into(),
+            commands,
+        }
+    }
+
+    pub fn compile(
+        &self,
+        options: &CompileOptions,
+        global_state: &MutCompilerState,
+        function_state: &FunctionCompilerState,
+    ) -> Vec<CompiledCommand> {
+        // calculate a hashed path for the function in the `sb` subfolder
+        let function_path = generate_group_function_path(function_state);
+
+        let namespace = function_state.namespace();
+
+        let contained_macros = {
+            let mut macros = HashSet::new();
+            for cmd in &self.commands {
+                macros.extend(cmd.get_macros());
+            }
+            macros
+        };
+        let (prepare_data_storage, function_invocation) = get_group_invocation_commands(
+            &function_path,
+            namespace,
+            &self.commands,
+            &contained_macros,
+            None,
+            None,
+        );
+
+        let execute_tail = if let Some(prepare_datastorage_cmd) = prepare_data_storage {
+            Execute::Runs(vec![prepare_datastorage_cmd, function_invocation])
+        } else {
+            Execute::Run(Box::new(function_invocation))
+        };
+        let conditional_run_cmd = Command::Execute(Execute::If(
+            self.condition.clone(),
+            Box::new(execute_tail),
+            None,
+        ));
+
+        let mut commands = self.commands.clone();
+        commands.push(conditional_run_cmd.clone());
+
+        create_group_function(&function_path, &commands, function_state);
+
+        let contains_return = commands.contains_return();
+
+        if contains_return {
+            todo!("While loops with return commands are not yet supported");
+        }
+
+        conditional_run_cmd.compile(options, global_state, function_state)
+    }
+
+    #[must_use]
+    pub fn get_count(&self, options: &CompileOptions) -> usize {
+        Execute::If(
+            self.condition.clone(),
+            Box::new(Execute::Run(Box::new(Command::Raw(String::new())))),
+            None,
+        )
+        .get_count(options)
+    }
+
+    #[must_use]
+    pub fn contains_macros(&self) -> bool {
+        self.condition.contains_macros() || self.commands.contains_macros()
+    }
+
+    #[must_use]
+    pub fn get_macros(&self) -> HashSet<&str> {
+        let mut macros = self.condition.get_macros();
+        for cmd in &self.commands {
+            macros.extend(cmd.get_macros());
+        }
+        macros
+    }
+
+    #[must_use]
+    pub fn contains_return(&self) -> bool {
+        self.commands.contains_return()
     }
 }
 

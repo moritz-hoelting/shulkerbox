@@ -11,10 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - support for commands using macros
 - support for registering scoreboards (automatic creation and deletion)
 - "return" command with special handling in groups and conditionals
+- while loop command
+- `CommandCollection` trait for common operations on collections of commands (e.g. `Vec<Command>`)
 
 ### Changed
 - use "return" command for conditionals instead of data storage when using supported pack format
-- update latest datapack format to 61
+- update latest datapack format to 81
 
 ### Removed
 

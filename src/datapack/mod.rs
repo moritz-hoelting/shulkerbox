@@ -4,7 +4,7 @@ mod command;
 mod function;
 mod namespace;
 pub mod tag;
-pub use command::{Command, Condition, Execute, Group, ReturnCommand};
+pub use command::{Command, Condition, Execute, Group, ReturnCommand, While};
 pub use function::Function;
 pub use namespace::Namespace;
 

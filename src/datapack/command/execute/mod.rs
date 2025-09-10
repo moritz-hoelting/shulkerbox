@@ -91,7 +91,7 @@ impl Execute {
                     arg = arg.compile()
                 ),
                 require_grouping,
-                prefix_contains_macros || arg.contains_macro(),
+                prefix_contains_macros || arg.contains_macros(),
                 options,
                 global_state,
                 function_state,
@@ -102,7 +102,7 @@ impl Execute {
                     selector = selector.compile()
                 ),
                 require_grouping,
-                prefix_contains_macros || selector.contains_macro(),
+                prefix_contains_macros || selector.contains_macros(),
                 options,
                 global_state,
                 function_state,
@@ -124,7 +124,7 @@ impl Execute {
                     arg = arg.compile()
                 ),
                 true,
-                prefix_contains_macros || arg.contains_macro(),
+                prefix_contains_macros || arg.contains_macros(),
                 options,
                 global_state,
                 function_state,
@@ -247,7 +247,7 @@ impl Execute {
 
     /// Check whether the execute command contains a macro.
     #[must_use]
-    pub fn contains_macro(&self) -> bool {
+    pub fn contains_macros(&self) -> bool {
         match self {
             Self::Facing(s, next)
             | Self::Store(s, next)
@@ -260,14 +260,14 @@ impl Execute {
             | Self::Align(s, next)
             | Self::Anchored(s, next)
             | Self::Summon(s, next)
-            | Self::On(s, next) => s.contains_macro() || next.contains_macro(),
+            | Self::On(s, next) => s.contains_macros() || next.contains_macros(),
             Self::If(cond, then, el) => {
-                cond.contains_macro()
-                    || then.contains_macro()
-                    || el.as_deref().is_some_and(Self::contains_macro)
+                cond.contains_macros()
+                    || then.contains_macros()
+                    || el.as_deref().is_some_and(Self::contains_macros)
             }
-            Self::Run(cmd) => cmd.contains_macro(),
-            Self::Runs(cmds) => cmds.iter().any(super::Command::contains_macro),
+            Self::Run(cmd) => cmd.contains_macros(),
+            Self::Runs(cmds) => cmds.iter().any(super::Command::contains_macros),
         }
     }
 
