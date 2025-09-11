@@ -10,7 +10,7 @@
 )]
 #![warn(clippy::all, clippy::pedantic, clippy::perf)]
 #![allow(clippy::missing_panics_doc, clippy::missing_const_for_fn)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 pub mod datapack;
 pub mod util;

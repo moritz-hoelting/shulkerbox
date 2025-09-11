@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-#[cfg(feature = "zip")]
+#[cfg(all(feature = "fs_access", feature = "zip"))]
 use zip::ZipWriter;
 
 /// Folder representation in virtual file system

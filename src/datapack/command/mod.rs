@@ -334,7 +334,6 @@ impl Group {
                 let (prepare_data_storage, function_invocation) = get_group_invocation_commands(
                     &function_path,
                     namespace,
-                    commands,
                     &contained_macros,
                     block_pass_macros,
                     macro_data_storage_name,
@@ -570,7 +569,6 @@ impl Hash for Group {
 fn get_group_invocation_commands(
     function_path: &str,
     namespace: &str,
-    commands: &[Command],
     contained_macros: &HashSet<&str>,
     block_pass_macros: Option<&HashSet<String>>,
     macro_data_storage_name: Option<&str>,
@@ -579,25 +577,27 @@ fn get_group_invocation_commands(
 
     let mut function_invocation = format!("function {namespace}:{function_path}");
 
-    if commands.contains_macros() {
+    if contained_macros.is_empty() {
+        (None, Command::Raw(function_invocation))
+    } else {
         // WARNING: this seems to be the only way to pass macros to the function called.
         // Because everything is passed as a string, it looses one "level" of escaping per pass.
         let mut macros_parts = contained_macros
             .iter()
             .filter(|&&m| block_pass_macros.is_none_or(|b| !b.contains(m)))
-            .flat_map(|&m| {
-                vec![
+            .map(|&m| {
+                [
                     MacroStringPart::String(format!(r#"{m}:""#)),
                     MacroStringPart::MacroUsage(m.to_string()),
                     MacroStringPart::String(r#"""#.to_string()),
                 ]
             })
-            .fold(Vec::new(), |mut acc, part| {
+            .fold(Vec::new(), |mut acc, parts| {
                 if !acc.is_empty() {
                     acc.push(MacroStringPart::String(",".to_string()));
                 }
 
-                acc.push(part);
+                acc.extend(parts);
 
                 acc
             });
@@ -632,8 +632,6 @@ fn get_group_invocation_commands(
 
             (None, Command::UsesMacro(macro_string))
         }
-    } else {
-        (None, Command::Raw(function_invocation))
     }
 }
 
@@ -777,16 +775,11 @@ impl While {
             for cmd in &self.commands {
                 macros.extend(cmd.get_macros());
             }
+            macros.extend(self.condition.get_macros());
             macros
         };
-        let (prepare_data_storage, function_invocation) = get_group_invocation_commands(
-            &function_path,
-            namespace,
-            &self.commands,
-            &contained_macros,
-            None,
-            None,
-        );
+        let (prepare_data_storage, function_invocation) =
+            get_group_invocation_commands(&function_path, namespace, &contained_macros, None, None);
 
         let execute_tail = if let Some(prepare_datastorage_cmd) = prepare_data_storage {
             Execute::Runs(vec![prepare_datastorage_cmd, function_invocation])
@@ -807,20 +800,105 @@ impl While {
         let contains_return = commands.contains_return();
 
         if contains_return {
-            todo!("While loops with return commands are not yet supported");
-        }
+            let full_path = format!(
+                "{namespace}:{function_path}",
+                namespace = function_state.namespace()
+            );
+            let return_data_path = md5::hash(&full_path).to_hex_lowercase();
 
-        conditional_run_cmd.compile(options, global_state, function_state)
+            let mut pre_cmds = Command::Raw(format!(
+                "data remove storage shulkerbox:return {return_data_path}"
+            ))
+            .compile(options, global_state, function_state)
+            .into_iter()
+            .map(|c| c.with_forbid_prefix(true))
+            .collect::<Vec<_>>();
+            let post_condition = Condition::Atom(
+                format!("data storage shulkerbox:return {return_data_path}").into(),
+            );
+
+            let post_cmd_store = global_state
+                .read()
+                .unwrap()
+                .functions_with_special_return
+                .get(&format!(
+                    "{}:{}",
+                    function_state.namespace(),
+                    function_state.path()
+                ))
+                .cloned().map(|parent_return_data_path| {
+                    Command::Execute(Execute::If(
+                    post_condition.clone(),
+                    Box::new(Execute::Run(Box::new(Command::Raw(format!(
+                        "data modify storage shulkerbox:return {parent_return_data_path} set from storage shulkerbox:return {return_data_path}"
+                    ))))),
+                    None,
+                ))
+                });
+
+            let post_cmd_return = Command::Execute(Execute::If(
+                post_condition,
+                Box::new(Execute::Run(Box::new(Command::Raw(format!(
+                    "return run data get storage shulkerbox:return {return_data_path}"
+                ))))),
+                None,
+            ));
+
+            let post_cmds = post_cmd_store
+                .into_iter()
+                .chain(std::iter::once(post_cmd_return))
+                .flat_map(|cmd| cmd.compile(options, global_state, function_state))
+                .map(|c| c.with_forbid_prefix(true))
+                .collect::<Vec<_>>();
+
+            global_state
+                .write()
+                .unwrap()
+                .functions_with_special_return
+                .insert(full_path, return_data_path);
+
+            pre_cmds.extend(conditional_run_cmd.compile(options, global_state, function_state));
+            pre_cmds.extend(post_cmds);
+            pre_cmds
+        } else {
+            conditional_run_cmd.compile(options, global_state, function_state)
+        }
     }
 
     #[must_use]
     pub fn get_count(&self, options: &CompileOptions) -> usize {
-        Execute::If(
+        let if_count = Execute::If(
             self.condition.clone(),
             Box::new(Execute::Run(Box::new(Command::Raw(String::new())))),
             None,
         )
-        .get_count(options)
+        .get_count(options);
+
+        let additional_return_cmds = if self.contains_return() {
+            let post_cmd_store = Command::Execute(Execute::If(
+                Condition::Atom("".into()),
+                Box::new(Execute::Run(Box::new(Command::Raw(String::new())))),
+                None,
+            ))
+            .get_count(options);
+
+            let post_cmd_return = Command::Execute(Execute::If(
+                Condition::Atom("".into()),
+                Box::new(Execute::Run(Box::new(Command::Raw(String::new())))),
+                None,
+            ))
+            .get_count(options);
+
+            let post_cmds = post_cmd_store + post_cmd_return;
+
+            Some(post_cmds + 1)
+        } else {
+            None
+        };
+
+        additional_return_cmds.map_or(if_count, |additional_return_cmds| {
+            additional_return_cmds + if_count
+        })
     }
 
     #[must_use]
