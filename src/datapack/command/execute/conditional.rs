@@ -1,5 +1,6 @@
 use chksum_md5 as md5;
 use std::{
+    cell::LazyCell,
     collections::HashSet,
     ops::{BitAnd, BitOr, Not},
 };
@@ -69,7 +70,7 @@ fn compile_using_data_storage(
     let then_count = then.get_count(options);
 
     let str_cond = cond.clone().compile(options, global_state, function_state);
-    let require_grouping_uid = (el.is_some() || then_count > 1).then(|| {
+    let success_uid = LazyCell::new(|| {
         // calculate a unique condition id for the else check
         let uid = function_state.request_uid();
         let pre_hash = function_state.path().to_owned() + ":" + &uid.to_string();
@@ -77,7 +78,8 @@ fn compile_using_data_storage(
         md5::hash(pre_hash).to_hex_lowercase()
     });
     #[allow(clippy::option_if_let_else)]
-    let then = if let Some(success_uid) = require_grouping_uid.as_deref() {
+    let then = if el.is_some() || then_count > 1 {
+        let success_uid = &*success_uid;
         // prepare commands for grouping
         let mut group_cmds = match then.clone() {
             Execute::Run(cmd) => vec![*cmd],
@@ -118,10 +120,7 @@ fn compile_using_data_storage(
     };
     // if the conditions have multiple parts joined by a disjunction, commands need to be grouped
     let each_or_cmd = (str_cond.len() > 1).then(|| {
-        let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
-            tracing::error!("No success_uid found for each_or_cmd, using default");
-            "if_success"
-        });
+        let success_uid = &*success_uid;
         (
             format!("data modify storage shulkerbox:cond {success_uid} set value true"),
             combine_conditions_commands(
@@ -135,10 +134,7 @@ fn compile_using_data_storage(
     });
     // build the condition for each then command
     let successful_cond = if each_or_cmd.is_some() {
-        let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
-            tracing::error!("No success_uid found for each_or_cmd, using default");
-            "if_success"
-        });
+        let success_uid = &*success_uid;
         Condition::Atom(MacroString::from(format!(
             "data storage shulkerbox:cond {{{success_uid}:1b}}"
         )))
@@ -151,10 +147,7 @@ fn compile_using_data_storage(
     // build the else part
     let el_commands = el
         .map(|el| {
-            let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
-                tracing::error!("No success_uid found for each_or_cmd, using default");
-                "if_success"
-            });
+            let success_uid = &*success_uid;
             let else_cond = (!Condition::Atom(MacroString::from(format!(
                 "data storage shulkerbox:cond {{{success_uid}:1b}}"
             ))))
@@ -173,10 +166,7 @@ fn compile_using_data_storage(
 
     // reset the success storage if needed
     let reset_success_storage = if each_or_cmd.is_some() || el.is_some() {
-        let success_uid = require_grouping_uid.as_deref().unwrap_or_else(|| {
-            tracing::error!("No success_uid found for each_or_cmd, using default");
-            "if_success"
-        });
+        let success_uid = &*success_uid;
         Some(
             CompiledCommand::new(format!("data remove storage shulkerbox:cond {success_uid}"))
                 .with_forbid_prefix(true),
